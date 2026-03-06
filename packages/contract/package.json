@@ -1,0 +1,18 @@
+{
+  "name": "@lowcor/contract",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@ts-rest/core": "^3.45.0",
+    "typescript": "^5.5.0"
+  }
+}

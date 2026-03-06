@@ -1,0 +1,10 @@
+{
+  "name": "low-cortisol-spike",
+  "private": true,
+  "scripts": {
+    "dev:frontend": "pnpm --filter frontend dev",
+    "dev:backend": "pnpm --filter backend start:dev",
+    "dev": "pnpm dev:backend & pnpm dev:frontend",
+    "build": "pnpm --filter frontend build && pnpm --filter backend build"
+  }
+}
