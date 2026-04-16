@@ -33,15 +33,13 @@ export class SleepService {
       interruptions: dto.interruptions ?? 0,
       notes:        dto.notes ?? null,
     });
-
-    const saved = await this.sleepRepo.save(record);
-
-    // ← Сбрасываем кэш — данные изменились
-    await this.cacheInvalidation.invalidate(userId);
-
-    return saved;
+    
+    const saved = await this.sleepRepo.save(record)
+    await this.cacheInvalidation.invalidateWithMetric(userId, saved.date)
+    return saved
   }
 
+  
   async update(userId: string, id: string, dto: UpdateSleepDto): Promise<SleepData> {
     const record = await this.findOne(userId, id);
 

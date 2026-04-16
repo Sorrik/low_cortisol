@@ -123,6 +123,7 @@ const stressSchema = z.object({
 
 const activitySchema = z.object({
   type:        z.enum(["walk", "run", "yoga", "gym", "sport", "other"]),
+  time:        z.string().regex(/^\d{2}:\d{2}$/).optional(),
   duration:    z.coerce.number().min(1),
   intensity:   z.enum(["light", "moderate", "vigorous"]).default("moderate"),
   steps:       z.coerce.number().min(0).optional(),
@@ -150,13 +151,13 @@ function getDefaults(metric: MetricType): Record<string, unknown> {
     case "food":     return { mealType: "lunch", notes: "" }
     case "mood":     return { value: 3, notes: "" }
     case "stress":   return { level: 5, notes: "" }
-    case "activity": return { type: "walk", duration: 30, intensity: "moderate", steps: 0, description: "" }
+    case "activity": return { type: "walk", time: "", duration: 30, intensity: "moderate", steps: 0, description: "" }
     case "water":    return { glasses: 4 }
   }
 }
 
 const ACTIVITY_TYPE_TO_API: Record<string, ActivityPayload["type"]> = {
-  walk: "walking", run: "running", yoga: "other", gym: "gym", sport: "other", other: "other",
+  walk: "walk", run: "run", yoga: "yoga", gym: "gym", sport: "sport", other: "other",
 }
 
 // ── Payload mapping ───────────────────────────────────────────
@@ -205,6 +206,7 @@ function toApiPayload(
       const combinedNotes = userDesc ? `${typeLabel}: ${userDesc}` : typeLabel
       return {
         date,
+        time:            (data.time as string | undefined) || undefined,
         type:            ACTIVITY_TYPE_TO_API[data.type as string] ?? "other",
         durationMinutes: data.duration as number,
         intensity:       (data.intensity as ActivityPayload["intensity"]) ?? "moderate",
@@ -583,6 +585,20 @@ function MetricForm({
                     </SelectContent>
                   </Select>
                 )} />
+            </div>
+            {/* Время тренировки */}
+            <div className="flex flex-col gap-2">
+              <Label className="text-secondary-foreground">
+                Время тренировки <span className="text-muted-foreground text-xs">(необязательно)</span>
+              </Label>
+              <Input
+                type="time"
+                className="h-11 border-border bg-input text-foreground"
+                {...register("time")}
+              />
+              <p className="text-xs text-muted-foreground">
+                Укажите время — система учтёт вечерние тренировки при анализе сна
+              </p>
             </div>
             <div className="flex flex-col gap-2">
               <Label className="text-secondary-foreground">Интенсивность</Label>

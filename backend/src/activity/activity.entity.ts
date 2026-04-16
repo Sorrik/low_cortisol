@@ -17,6 +17,9 @@ export class ActivityData {
   @Column({ type: 'date' })
   date!: string;
 
+  @Column({ type: 'time', nullable: true })
+  time!: string | null;
+  
   @Column({ type: 'varchar', length: 20 })
   type!: string; // walk, run, yoga, gym, sport
 

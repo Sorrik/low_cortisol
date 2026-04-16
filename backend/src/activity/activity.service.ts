@@ -16,34 +16,35 @@ export class ActivityService {
     private readonly cacheInvalidation: CacheInvalidationService,  // ← добавить
   ) {}
 
-  async create(userId: string, dto: CreateActivityDto): Promise<ActivityData> {
-    const record: ActivityData = this.activityRepo.create({
-      userId,
-      date:            dto.date,
-      type:            dto.type,
-      durationMinutes: dto.durationMinutes,
-      intensity:       dto.intensity,
-      caloriesBurned:  dto.caloriesBurned ?? null,
-      notes:           dto.notes ?? null,
-    });
+async create(userId: string, dto: CreateActivityDto): Promise<ActivityData> {
+  const record: ActivityData = this.activityRepo.create({
+    userId,
+    date:            dto.date,
+    time:            dto.time           ?? null,  // ← добавить
+    type:            dto.type,
+    durationMinutes: dto.durationMinutes,
+    intensity:       dto.intensity,
+    caloriesBurned:  dto.caloriesBurned ?? null,
+    notes:           dto.notes          ?? null,
+  })
 
-    const saved = await this.activityRepo.save(record);
-    await this.cacheInvalidation.invalidate(userId);  // ← добавить
-    return saved;
-  }
+  const saved = await this.activityRepo.save(record)
+  await this.cacheInvalidation.invalidateWithMetric(userId, saved.date)
+  return saved
+}
 
-  async update(userId: string, id: string, dto: UpdateActivityDto): Promise<ActivityData> {
-    const record = await this.findOne(userId, id);
+async update(userId: string, id: string, dto: UpdateActivityDto): Promise<ActivityData> {
+  const record = await this.findOne(userId, id)
 
-    const updates = Object.fromEntries(
-      Object.entries(dto).filter(([, v]) => v !== undefined),
-    );
-    Object.assign(record, updates);
+  const updates = Object.fromEntries(
+    Object.entries(dto).filter(([, v]) => v !== undefined),
+  )
+  Object.assign(record, updates)
 
-    const saved = await this.activityRepo.save(record);
-    await this.cacheInvalidation.invalidate(userId);  // ← добавить
-    return saved;
-  }
+  const saved = await this.activityRepo.save(record)
+  await this.cacheInvalidation.invalidate(userId)
+  return saved
+}
 
   async remove(userId: string, id: string): Promise<void> {
     const record = await this.findOne(userId, id);

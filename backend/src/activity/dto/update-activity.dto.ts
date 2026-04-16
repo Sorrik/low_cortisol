@@ -1,7 +1,13 @@
-import { IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Min, Matches } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateActivityDto {
+  @ApiPropertyOptional({ example: '20:30', description: 'Время тренировки HH:MM' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{2}:\d{2}$/)
+  time?: string;
+
   @ApiPropertyOptional({ example: 'run', enum: ['walk', 'run', 'yoga', 'gym', 'sport', 'other'] })
   @IsOptional()
   @IsEnum(['walk', 'run', 'yoga', 'gym', 'sport', 'other'])

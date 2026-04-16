@@ -20,7 +20,7 @@ export class NutritionService {
   async create(userId: string, dto: CreateNutritionDto): Promise<NutritionData> {
     const record = this.nutritionRepo.create({ userId, ...dto } as DeepPartial<NutritionData>);
     const saved  = await this.nutritionRepo.save(record);
-    await this.cacheInvalidation.invalidate(userId);
+    await this.cacheInvalidation.invalidateWithMetric(userId, saved.date)
     return saved;
   }
 

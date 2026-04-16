@@ -29,23 +29,9 @@ export interface MealEntry {
   macros: FoodMacros
 }
 
-// ── OpenFoodFacts API ─────────────────────────────────────────
+// ── FatSecret API (через бэкенд /nutrition/food-search) ───────
 
-const OFF_BASE    = "https://world.openfoodfacts.org"
 const searchCache = new Map<string, FoodItem[]>()
-
-interface OFFProduct {
-  id:           string
-  product_name: string
-  brands?:      string
-  nutriments?: {
-    "energy-kcal_100g"?: number
-    "energy_100g"?:      number
-    proteins_100g?:      number
-    fat_100g?:           number
-    carbohydrates_100g?: number
-  }
-}
 
 async function searchFoods(query: string): Promise<FoodItem[]> {
   if (!query.trim()) return []
@@ -53,44 +39,38 @@ async function searchFoods(query: string): Promise<FoodItem[]> {
   const cacheKey = query.toLowerCase().trim()
   if (searchCache.has(cacheKey)) return searchCache.get(cacheKey)!
 
-  const params = new URLSearchParams({
-    search_terms:  query,
-    search_simple: "1",
-    action:        "process",
-    json:          "1",
-    page_size:     "15",
-    fields:        "id,product_name,brands,nutriments",
-    lc:            "ru",
-  })
+  const token = typeof window !== "undefined"
+    ? localStorage.getItem("access_token") ?? ""
+    : ""
 
-  const res  = await fetch(`${OFF_BASE}/cgi/search.pl?${params}`)
-  const data = await res.json() as { products?: OFFProduct[] }
+  const res = await fetch(
+    `${process.env.NEXT_PUBLIC_API_URL}/nutrition/food-search?q=${encodeURIComponent(query)}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
 
-  const result = (data.products ?? [])
-    .filter(p => {
-      const n = p.nutriments
-      if (!n) return false
-      return (n.proteins_100g !== undefined || n["energy-kcal_100g"] !== undefined)
-        && p.product_name?.trim()
-    })
-    .map(p => {
-      const n       = p.nutriments!
-      const kcal100 = n["energy-kcal_100g"]
-        ?? (n["energy_100g"] ? n["energy_100g"] / 4.184 : 0)
-      return {
-        id:    p.id ?? Math.random().toString(),
-        name:  p.product_name.trim(),
-        brand: p.brands?.split(",")[0]?.trim(),
-        per100g: {
-          proteins: Math.round((n.proteins_100g      ?? 0) * 10) / 10,
-          fats:     Math.round((n.fat_100g           ?? 0) * 10) / 10,
-          carbs:    Math.round((n.carbohydrates_100g ?? 0) * 10) / 10,
-          kcal:     Math.round(kcal100),
-        },
-      }
-    })
-    .filter(f => f.per100g.kcal > 0 || f.per100g.proteins > 0)
-    .slice(0, 10)
+  if (!res.ok) return []
+
+  const data = await res.json() as {
+    foods: Array<{
+      food_id: string
+      name:    string
+      brand?:  string
+      per100g: { kcal: number; protein: number; fat: number; carbs: number }
+    }>
+  }
+
+  // Маппим ответ FatSecret → локальный FoodItem (сохраняем proteins/fats)
+  const result: FoodItem[] = (data.foods ?? []).map(f => ({
+    id:    f.food_id,
+    name:  f.name,
+    brand: f.brand,
+    per100g: {
+      kcal:     Math.round(f.per100g.kcal),
+      proteins: Math.round(f.per100g.protein * 10) / 10,
+      fats:     Math.round(f.per100g.fat     * 10) / 10,
+      carbs:    Math.round(f.per100g.carbs   * 10) / 10,
+    },
+  }))
 
   searchCache.set(cacheKey, result)
   return result
@@ -148,7 +128,6 @@ export function FoodSearch({ entries, onChange }: FoodSearchProps) {
   const inputRef                = useRef<HTMLInputElement>(null)
   const dropdownRef             = useRef<HTMLDivElement>(null)
 
-  // Debounced поиск — минимум 3 символа, 600мс задержка
   useEffect(() => {
     if (!query.trim() || query.length < 3) {
       setResults([])
@@ -175,7 +154,6 @@ export function FoodSearch({ entries, onChange }: FoodSearchProps) {
     }
   }, [query])
 
-  // Закрыть дропдаун при клике вне
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (
@@ -396,4 +374,4 @@ export function FoodSearch({ entries, onChange }: FoodSearchProps) {
       )}
     </div>
   )
-} 
+}

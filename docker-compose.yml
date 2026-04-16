@@ -22,8 +22,8 @@ services:
 
   backend:
     build:
-      context: .                        # ← корень монорепо
-      dockerfile: backend/Dockerfile    # ← путь к Dockerfile от корня
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: low_cortisol_spike_api
     restart: unless-stopped
     ports:
@@ -34,17 +34,19 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       ML_SERVICE_URL: http://ml-service:8000
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL}   # ← добавить
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      FATSECRET_CLIENT_ID: ${FATSECRET_CLIENT_ID}
+      FATSECRET_CLIENT_SECRET: ${FATSECRET_CLIENT_SECRET}
+      CHROMA_URL: http://chromadb:8000
       PORT: 3000
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
-      - ./backend/src:/app/backend/src  # ← исправлен путь внутри контейнера
+      - ./backend/src:/app/backend/src
     networks:
       - app-network
-    # command убран — CMD задан в Dockerfile и использует pnpm
 
   ml-service:
     build:

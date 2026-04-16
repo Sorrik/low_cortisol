@@ -18,7 +18,11 @@ logger = logging.getLogger(__name__)
 #       meta.json        ← версия, feature_names, метрики
 # ─────────────────────────────────────────────────────────────
 
-MODELS_ROOT = Path(os.environ.get("MODELS_DIR", "models"))
+MODELS_ROOT = Path(
+    os.environ.get("MODELS_DIR")
+    or os.environ.get("MODEL_PATH")
+    or "models"
+)
 
 
 # ─────────────────────────────────────────────────────────────

@@ -24,11 +24,13 @@ api.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
     if (typeof window !== "undefined") {
-      if (error.response?.status === 401) {
-        localStorage.removeItem("access_token")
-        window.location.href = "/login"
-        return new Promise(() => {})  // ← подвешиваем промис чтобы не летели дальнейшие ошибки
-      }
+        if (error.response?.status === 401) {
+          localStorage.removeItem("access_token");
+          if (window.location.pathname !== '/login') {
+            window.location.href = "/login";
+          }
+          return Promise.reject(error); // Теперь react-query узнает об ошибке
+        }
     }
 
     // ← логируем для отладки (убрать в проде)

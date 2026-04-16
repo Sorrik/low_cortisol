@@ -3,18 +3,22 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService }      from '@nestjs/config'
 import OpenAI                 from 'openai'
-import { buildRecommendationPrompt, extractHealthContext } from './prompt-builder'
+import {
+  buildRecommendationPrompt,
+  extractHealthContext,
+  MlPrediction,
+} from './prompt-builder'
 import { RecommendationDto }  from '../ml/dto/ml-response.dto'
-import { RagService, RelevantArticle } from '../rag/rag.service'
+import { RagService }         from '../rag/rag.service'
 
 // ── Типы ─────────────────────────────────────────────────────
 
 export interface ArticleSource {
-  index: number   // номер [1], [2], [3] в тексте рекомендаций
+  index: number
   pmid:  string
   title: string
   year:  string
-  url:   string   // Europe PMC — доступен в РФ
+  url:   string
 }
 
 export interface RecommendationsResult {
@@ -38,25 +42,38 @@ export class LlmService {
       apiKey:  this.config.get<string>('OPENAI_API_KEY'),
       baseURL: this.config.get<string>('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
     })
-    this.model = this.config.get<string>('LLM_MODEL', 'gpt-4o-mini')
+    // gpt-4.1-mini — быстрее и дешевле gpt-4o-mini
+    this.model = this.config.get<string>('LLM_MODEL', 'gpt-4.1-mini')
   }
 
-  async getRecommendations(healthData: any): Promise<RecommendationsResult> {
-    this.logger.log(`[getRecommendations] model=${this.model}`)
+  // ── Главный метод ─────────────────────────────────────────
+  //
+  // mlPrediction — опциональный: приходит из InsightsService после
+  // вызова ML-сервиса. Если null (cold_start) — промпт строится
+  // без SHAP блока, только на rule-based данных.
 
+  async getRecommendations(
+    healthData:    any,
+    mlPrediction?: MlPrediction | null,
+  ): Promise<RecommendationsResult> {
+    this.logger.log(
+      `[getRecommendations] model=${this.model}, ` +
+      `ml_phase=${mlPrediction?.phase_mode ?? 'none'}, ` +
+      `shap_factors=${mlPrediction?.top_influencers?.length ?? 0}`
+    )
+
+    // ── RAG: находим релевантные статьи
     const healthContext = extractHealthContext(healthData)
     const articles      = await this.ragService.findRelevantArticles(healthContext)
 
     if (articles.length > 0) {
       this.logger.log(
         `[getRecommendations] RAG нашёл ${articles.length} статей: ` +
-        articles.map(a => `PMID:${a.pmid} (${a.relevance})`).join(', ')
+        articles.map(a => `PMID:${a.pmid}`).join(', ')
       )
-    } else {
-      this.logger.log('[getRecommendations] RAG статей не найдено')
     }
 
-    // Нумерация [1][2][3] совпадает с порядком статей в промпте
+    // ── Источники для фронтенда
     const sources: ArticleSource[] = articles.map((a, i) => ({
       index: i + 1,
       pmid:  a.pmid,
@@ -65,14 +82,21 @@ export class LlmService {
       url:   `https://europepmc.org/article/MED/${a.pmid}`,
     }))
 
-    const promptPayload = buildRecommendationPrompt(healthData, articles)
+    // ── Строим промпт: данные + SHAP + RAG
+    const promptPayload = buildRecommendationPrompt(
+      healthData,
+      articles,
+      mlPrediction ?? undefined,
+    )
     const { system, user } = JSON.parse(promptPayload)
+
+    this.logger.debug(`[getRecommendations] prompt preview: ${user.slice(0, 300)}...`)
 
     try {
       const response = await this.client.chat.completions.create({
         model:       this.model,
-        temperature: 0.4,
-        max_tokens:  1200,
+        temperature: 0.2,
+        max_tokens:  800,
         messages: [
           { role: 'system', content: system },
           { role: 'user',   content: user   },
@@ -80,7 +104,12 @@ export class LlmService {
       })
 
       const raw = response.choices[0]?.message?.content ?? ''
-      this.logger.log(`[getRecommendations] usage=${JSON.stringify(response.usage)}`)
+
+      this.logger.log(
+        `[getRecommendations] tokens: ` +
+        `prompt=${response.usage?.prompt_tokens}, ` +
+        `completion=${response.usage?.completion_tokens}`
+      )
 
       const recommendations = this._parseResponse(raw)
       return { recommendations, sources }
@@ -90,6 +119,8 @@ export class LlmService {
       throw err
     }
   }
+
+  // ── Парсинг ответа ────────────────────────────────────────
 
   private _parseResponse(raw: string): RecommendationDto[] {
     try {
@@ -106,21 +137,22 @@ export class LlmService {
         return []
       }
 
+      const VALID_METRICS    = ['sleep', 'mood', 'stress', 'activity', 'water', 'food']
+      const VALID_SEVERITIES = ['good', 'attention', 'alert']
+
       const valid = recs.filter((r: any) => {
-        const hasFields =
+        const ok =
           typeof r.metric      === 'string' &&
           typeof r.severity    === 'string' &&
           typeof r.title       === 'string' &&
-          typeof r.description === 'string'
+          typeof r.description === 'string' &&
+          VALID_METRICS.includes(r.metric)   &&
+          VALID_SEVERITIES.includes(r.severity)
 
-        const validMetric   = ['sleep','mood','stress','activity','water','food'].includes(r.metric)
-        const validSeverity = ['good','attention','alert'].includes(r.severity)
-
-        if (!hasFields || !validMetric || !validSeverity) {
+        if (!ok) {
           this.logger.warn(`[_parseResponse] невалидная: ${JSON.stringify(r)}`)
-          return false
         }
-        return true
+        return ok
       })
 
       this.logger.log(`[_parseResponse] получено ${recs.length}, валидных ${valid.length}`)

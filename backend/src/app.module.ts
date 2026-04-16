@@ -13,6 +13,8 @@ import { WaterModule }     from './water/water.module';
 import { StressModule }    from './stress/stress.module';
 import { MlModule }        from './ml/ml.module';
 import { InsightsModule }  from './insights/insights.module'; 
+import { GamificationModule } from './gamification/gamification.module'
+import { CacheInvalidationModule } from './insights/cache-invalidation.module'
 
 import { User }          from './users/user.entity';
 import { SleepData }     from './sleep/sleep.entity';
@@ -21,7 +23,7 @@ import { NutritionData } from './nutrition/nutrition.entity';
 import { ActivityData }  from './activity/activity.entity';
 import { WaterData }     from './water/water.entity';
 import { StressData }    from './stress/stress.entity';
-
+import { UserProfileModule } from './user-profile/user-profile.module'
 @Module({
   imports: [
     // ── 1. Config — первым, все остальные модули читают .env
@@ -50,6 +52,7 @@ import { StressData }    from './stress/stress.entity';
         StressData,
       ],
       synchronize: true,
+      autoLoadEntities: true,
     }),
 
     // ── 4. Feature modules
@@ -61,10 +64,14 @@ import { StressData }    from './stress/stress.entity';
     ActivityModule,
     WaterModule,
     StressModule,
+    UserProfileModule,
+    GamificationModule,
+    CacheInvalidationModule,
 
     // ── 5. ML + Insights
     MlModule,
     InsightsModule,
+    UserProfileModule,
   ],
 })
 export class AppModule {}

@@ -63,7 +63,7 @@ export function RegisterForm() {
       })
       localStorage.setItem("access_token", loginResponse.data.access_token)
       localStorage.setItem("user", JSON.stringify(loginResponse.data.user))
-      router.push("/dashboard")
+      router.push("/onboarding")
     } catch (err) {
       const axiosError = err as AxiosError
       if (axiosError.response?.status === 409) {

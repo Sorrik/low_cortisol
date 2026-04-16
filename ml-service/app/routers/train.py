@@ -91,7 +91,7 @@ async def train(request: TrainRequest):
         "samples_used":   result.get("samples"),
         "features_count": result.get("features"),
         "cv_mae":         cv_mae,
-        "oob_r2":         oob_r2,                        # ← новое: R² out-of-bag
+        "cv_r2":          result.get("cv_r2"),                       # ← новое: R² out-of-bag
         "model_version":  version,                       # ← новое: из result, не из meta
         "trained_at":     meta.get("trained_at") if meta else None,
         "message":        message,

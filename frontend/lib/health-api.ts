@@ -126,7 +126,8 @@ export type StressPayload = {
 
 export type ActivityPayload = {
   date:            string
-  type:            "walking" | "running" | "gym" | "cycling" | "other"
+  time?:           string
+  type:            "walk" | "run" | "yoga" | "gym" | "sport" | "other"
   durationMinutes: number
   intensity:       "light" | "moderate" | "vigorous"
   caloriesBurned?: number
@@ -155,7 +156,7 @@ export type NutritionPayload = {
 export const getInsights        = (): Promise<InsightsResponse> =>
   api.get("/insights/me").then((r) => r.data)
 export const getRecommendations = () =>
-  api.get<Recommendation[]>("/insights/recommendations").then(getData)
+  api.get<{ data: Recommendation[] }>("/insights/recommendations").then(getData)
 
 // ── Sleep ─────────────────────────────────────────────────
 export const getSleepRecords    = () =>
@@ -243,5 +244,155 @@ export function updateProfile(updates: Partial<Profile>): Promise<Profile> {
     const next = { ...current, ...updates }
     localStorage.setItem(PROFILE_KEY, JSON.stringify(next))
     return next
+  })
+}
+
+// Добавить в frontend/lib/health-api.ts
+// Все три функции используют один эндпоинт GET /gamification
+// и трансформируют данные в нужный формат для компонентов.
+
+import type {
+  GamificationDto, FullStreakData, UserLevelInfo, Achievement,
+} from '@/types/health'
+
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
+
+function token() {
+  return typeof window !== 'undefined' ? localStorage.getItem('access_token') ?? '' : ''
+}
+
+// Вместо функции fetchGamification с fetch()
+async function fetchGamification(): Promise<GamificationDto> {
+  // Используем уже настроенный axios instance
+  const res = await api.get('/gamification');
+  return res.data;
+}
+
+// ── getFullStreakData ─────────────────────────────────────────
+
+export async function getFullStreakData(): Promise<FullStreakData> {
+  const g = await fetchGamification()
+  return {
+    anyData:    { current: g.streakAny,  best: g.longestAny  },
+    allMetrics: { current: g.streakFull, best: g.longestFull },
+    goalsMet:   { current: g.streakNorm, best: g.longestNorm },
+  }
+}
+
+// ── getUserLevel ──────────────────────────────────────────────
+
+const LEVEL_THRESHOLDS = [
+  { key: 'beginner', name: 'Новичок',  min: 0    },
+  { key: 'amateur',  name: 'Любитель', min: 300  },
+  { key: 'expert',   name: 'Эксперт',  min: 700  },
+  { key: 'master',   name: 'Мастер',   min: 1500 },
+]
+
+export async function getUserLevel(): Promise<UserLevelInfo> {
+  const g = await fetchGamification()
+
+  const levels    = LEVEL_THRESHOLDS
+  const curIdx    = g.level - 1                             // level в БД: 1,2,3,4
+  const cur       = levels[curIdx]  ?? levels[0]
+  const next      = levels[curIdx + 1]
+  const xpInLevel = g.totalPoints - cur.min
+  const nextXp    = next ? next.min - cur.min : 500         // на макс. уровне — заглушка
+
+  return {
+    level:       cur.key,
+    name:        g.levelName,
+    xp:          xpInLevel,
+    nextLevelXp: nextXp,
+    totalXp:     g.totalPoints,
+  }
+}
+
+// ── getAchievements ───────────────────────────────────────────
+// Маппинг бейджей из BadgeId → Achievement для UI.
+// progress/maxProgress: для стрик-бейджей показывает текущий стрик,
+// для остальных — 1/1 если получен, 0/1 если нет.
+
+const BADGE_META: Record<string, {
+  title: string; description: string; icon: string
+  rarity: Achievement['rarity']; category: Achievement['category']
+  points: number; maxProgress: number
+}> = {
+  // streak_any
+  streak_any_3:   { title:'3 дня',          description:'3 дня с любыми данными',    icon:'flame',      rarity:'common',    category:'streak', points:10,  maxProgress:3   },
+  streak_any_5:   { title:'5 дней',          description:'5 дней подряд',             icon:'flame',      rarity:'common',    category:'streak', points:20,  maxProgress:5   },
+  streak_any_7:   { title:'Неделя!',         description:'7 дней без пропусков',      icon:'flame',      rarity:'common',    category:'streak', points:50,  maxProgress:7   },
+  streak_any_10:  { title:'10 дней',         description:'10 дней подряд',            icon:'flame',      rarity:'rare',      category:'streak', points:80,  maxProgress:10  },
+  streak_any_14:  { title:'Две недели',       description:'14 дней — уже привычка',   icon:'flame',      rarity:'rare',      category:'streak', points:120, maxProgress:14  },
+  streak_any_20:  { title:'20 дней',         description:'20 дней без пропусков',     icon:'flame',      rarity:'rare',      category:'streak', points:180, maxProgress:20  },
+  streak_any_30:  { title:'Месяц!',          description:'30 дней — дисциплина',      icon:'flame',      rarity:'epic',      category:'streak', points:300, maxProgress:30  },
+  streak_any_60:  { title:'60 дней',         description:'Два месяца подряд',         icon:'zap',        rarity:'epic',      category:'streak', points:600, maxProgress:60  },
+  streak_any_100: { title:'100 дней',        description:'Легендарный результат',     icon:'crown',      rarity:'legendary', category:'streak', points:1000,maxProgress:100 },
+  // streak_full
+  streak_full_3:  { title:'Полный день ×3',  description:'3 дня — все 6 метрик',      icon:'layout-grid',rarity:'common',    category:'streak', points:20,  maxProgress:3   },
+  streak_full_7:  { title:'Перфекционист',   description:'7 дней — все метрики',      icon:'layout-grid',rarity:'rare',      category:'streak', points:100, maxProgress:7   },
+  streak_full_14: { title:'Идеально',        description:'14 дней — полный набор',    icon:'layout-grid',rarity:'epic',      category:'streak', points:250, maxProgress:14  },
+  streak_full_30: { title:'Бриллиант',       description:'30 дней — все метрики',     icon:'layout-grid',rarity:'legendary', category:'streak', points:700, maxProgress:30  },
+  // streak_norm
+  streak_norm_3:  { title:'В норме ×3',      description:'3 дня: сон+стресс в норме', icon:'target',     rarity:'common',    category:'goal',   points:30,  maxProgress:3   },
+  streak_norm_7:  { title:'Неделя в норме',  description:'7 дней личного баланса',    icon:'target',     rarity:'rare',      category:'goal',   points:100, maxProgress:7   },
+  streak_norm_14: { title:'Мастер нормы',    description:'14 дней в балансе',         icon:'target',     rarity:'epic',      category:'goal',   points:250, maxProgress:14  },
+  streak_norm_30: { title:'Гармония',        description:'30 дней — личный баланс',   icon:'target',     rarity:'legendary', category:'goal',   points:600, maxProgress:30  },
+  // sleep
+  sleep_week:     { title:'Неделя хорошего сна',description:'7 дней сон ≥ нормы',    icon:'moon',       rarity:'rare',      category:'goal',   points:80,  maxProgress:7   },
+  sleep_champ:    { title:'Чемпион сна',     description:'14 дней качество ≥ 7/10',  icon:'moon',       rarity:'epic',      category:'goal',   points:150, maxProgress:14  },
+  sleep_improver: { title:'Сон улучшился',   description:'Средний сон вырос на 1+ ч', icon:'trending-up',rarity:'rare',      category:'improvement',points:100,maxProgress:1},
+  // stress
+  calm_week:      { title:'Спокойная неделя',description:'7 дней стресс ≤ базового',  icon:'brain',      rarity:'rare',      category:'goal',   points:80,  maxProgress:7   },
+  stress_survivor:{ title:'Пережил кризис',  description:'Восстановился после пика',  icon:'activity',   rarity:'epic',      category:'anomaly',points:200, maxProgress:1   },
+  zen_master:     { title:'Мастер дзен',     description:'30 дней стресс ≤ 4/10',    icon:'brain',      rarity:'legendary', category:'goal',   points:500, maxProgress:30  },
+  // mood
+  mood_rising:    { title:'Настроение растёт',description:'5 дней настроение ≥ 6/10', icon:'smile',      rarity:'common',    category:'improvement',points:40,maxProgress:5 },
+  mood_stable:    { title:'Эмоц. баланс',    description:'14 дней настроение ≥ 6/10', icon:'smile',      rarity:'rare',      category:'goal',   points:100, maxProgress:14  },
+  mood_improver:  { title:'Счастливее',      description:'Настроение выросло на 2+',  icon:'trending-up',rarity:'rare',      category:'improvement',points:120,maxProgress:1},
+  // activity
+  active_week:    { title:'Активная неделя', description:'5 из 7 дней с тренировкой', icon:'footprints', rarity:'common',    category:'goal',   points:60,  maxProgress:5   },
+  sport_starter:  { title:'Начало пути',     description:'10 тренировок записано',    icon:'footprints', rarity:'rare',      category:'goal',   points:80,  maxProgress:10  },
+  activity_improver:{title:'Стал активнее',  description:'Активность выросла на 20%', icon:'trending-up',rarity:'rare',      category:'improvement',points:100,maxProgress:1},
+  // water
+  hydration_week: { title:'Гидрация ×7',     description:'7 дней ≥ 1500 мл воды',    icon:'droplets',   rarity:'rare',      category:'goal',   points:80,  maxProgress:7   },
+  // anomaly
+  anomaly_survived:   {title:'Выброс пережит',  description:'Вернулся к норме за 3 дня',icon:'search', rarity:'rare', category:'anomaly',points:120,maxProgress:1},
+  anomaly_3_survived: {title:'Кризис-менеджер', description:'3 аномалии пережиты',      icon:'search', rarity:'epic', category:'anomaly',points:300,maxProgress:3},
+  // data
+  first_entry:    { title:'Первый шаг',      description:'Первая запись данных',      icon:'user',       rarity:'common',    category:'goal',   points:10,  maxProgress:1   },
+  completionist:  { title:'Перфекционист',   description:'30 дней — все 6 метрик',    icon:'layout-grid',rarity:'epic',      category:'goal',   points:200, maxProgress:30  },
+  // levels
+  level_beginner: { title:'Новичок',         description:'Старт пути',                icon:'user',       rarity:'common',    category:'level',  points:0,   maxProgress:1   },
+  level_amateur:  { title:'Любитель',        description:'300 очков',                 icon:'star',       rarity:'common',    category:'level',  points:0,   maxProgress:300 },
+  level_expert:   { title:'Эксперт',         description:'700 очков',                 icon:'award',      rarity:'rare',      category:'level',  points:0,   maxProgress:700 },
+  level_master:   { title:'Мастер',          description:'1500 очков',                icon:'crown',      rarity:'epic',      category:'level',  points:0,   maxProgress:1500},
+}
+
+export async function getAchievements(): Promise<Achievement[]> {
+  const g = await fetchGamification()
+  const earnedSet = new Set(g.badges)
+
+  return Object.entries(BADGE_META).map(([id, meta]) => {
+    const earned    = earnedSet.has(id)
+    const earnedAt  = g.badgeDates[id]
+
+    // Для стрик-бейджей прогресс = текущий стрик
+    let progress = earned ? meta.maxProgress : 0
+    if (id.startsWith('streak_any_') && !earned) {
+      progress = Math.min(g.streakAny, meta.maxProgress)
+    } else if (id.startsWith('streak_full_') && !earned) {
+      progress = Math.min(g.streakFull, meta.maxProgress)
+    } else if (id.startsWith('streak_norm_') && !earned) {
+      progress = Math.min(g.streakNorm, meta.maxProgress)
+    } else if (id.startsWith('level_') && !earned) {
+      progress = Math.min(g.totalPoints, meta.maxProgress)
+    }
+
+    return {
+      id,
+      ...meta,
+      progress,
+      unlockedAt: earnedAt,
+    }
   })
 }

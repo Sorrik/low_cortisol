@@ -35,7 +35,7 @@ export class MoodService {
     });
 
     const saved = await this.moodRepo.save(record);
-    await this.cacheInvalidation.invalidate(userId);  // ← добавить
+    await this.cacheInvalidation.invalidateWithMetric(userId, saved.date)// ← добавить
     return saved;
   }
 

@@ -1,0 +1,107 @@
+export const DarkColors = {
+  background: '#0f0f0f',
+  card: '#1a1a1a',
+  cardHover: '#27272a',
+  foreground: '#f5f5f5',
+  mutedForeground: '#9ca3af',
+  secondaryForeground: '#e5e5e5',
+  primary: '#a3e635',
+  primaryForeground: '#0a0a0a',
+  primaryMuted: 'rgba(163, 230, 53, 0.12)',
+  primaryMuted20: 'rgba(163, 230, 53, 0.22)',
+  border: '#27272a',
+  borderLight: '#3a3a3a',
+  destructive: '#ef4444',
+  destructiveForeground: '#fef2f2',
+  destructiveMuted: 'rgba(239, 68, 68, 0.1)',
+  success: '#22c55e',
+  successMuted: 'rgba(34, 197, 94, 0.1)',
+  warning: '#f59e0b',
+  warningMuted: 'rgba(245, 158, 11, 0.1)',
+  secondary: '#27272a',
+  secondaryHover: '#3a3a3a',
+  input: '#1a1a1a',
+  inputBorder: '#27272a',
+  sleep: '#818cf8',
+  sleepMuted: 'rgba(129, 140, 248, 0.1)',
+  nutrition: '#fbbf24',
+  nutritionMuted: 'rgba(251, 191, 36, 0.1)',
+  mood: '#4ade80',
+  moodMuted: 'rgba(74, 222, 128, 0.1)',
+  stress: '#f87171',
+  stressMuted: 'rgba(248, 113, 113, 0.1)',
+  activity: '#fb923c',
+  activityMuted: 'rgba(251, 146, 60, 0.1)',
+  water: '#38bdf8',
+  waterMuted: 'rgba(56, 189, 248, 0.1)',
+  streak: '#f97316',
+  streakMuted: 'rgba(249, 115, 22, 0.1)',
+  gold: '#fbbf24',
+  goldMuted: 'rgba(251, 191, 36, 0.1)',
+}
+
+export const LightColors = {
+  background: '#f8f9fa',
+  card: '#ffffff',
+  cardHover: '#f1f5f9',
+  foreground: '#0f172a',
+  mutedForeground: '#64748b',
+  secondaryForeground: '#1e293b',
+  primary: '#65a30d',
+  primaryForeground: '#ffffff',
+  primaryMuted: 'rgba(101, 163, 13, 0.1)',
+  primaryMuted20: 'rgba(101, 163, 13, 0.2)',
+  border: '#e2e8f0',
+  borderLight: '#f1f5f9',
+  destructive: '#ef4444',
+  destructiveForeground: '#ffffff',
+  destructiveMuted: 'rgba(239, 68, 68, 0.1)',
+  success: '#16a34a',
+  successMuted: 'rgba(22, 163, 74, 0.1)',
+  warning: '#d97706',
+  warningMuted: 'rgba(217, 119, 6, 0.1)',
+  secondary: '#f1f5f9',
+  secondaryHover: '#e2e8f0',
+  input: '#ffffff',
+  inputBorder: '#e2e8f0',
+  sleep: '#6366f1',
+  sleepMuted: 'rgba(99, 102, 241, 0.1)',
+  nutrition: '#d97706',
+  nutritionMuted: 'rgba(217, 119, 6, 0.1)',
+  mood: '#16a34a',
+  moodMuted: 'rgba(22, 163, 74, 0.1)',
+  stress: '#dc2626',
+  stressMuted: 'rgba(220, 38, 38, 0.1)',
+  activity: '#ea580c',
+  activityMuted: 'rgba(234, 88, 12, 0.1)',
+  water: '#0284c7',
+  waterMuted: 'rgba(2, 132, 199, 0.1)',
+  streak: '#ea580c',
+  streakMuted: 'rgba(234, 88, 12, 0.1)',
+  gold: '#d97706',
+  goldMuted: 'rgba(217, 119, 6, 0.1)',
+}
+
+// Дефолт — тёмная, будет перезаписываться через контекст
+export let Colors = DarkColors
+
+export const Spacing = {
+  xs: 4, sm: 8, md: 12, lg: 16,
+  xl: 20, xxl: 24, xxxl: 32,
+}
+
+export const BorderRadius = {
+  sm: 6, md: 8, lg: 12, xl: 16, xxl: 24, full: 9999,
+}
+
+export const FontSize = {
+  xs: 10, sm: 12, base: 14, md: 16,
+  lg: 18, xl: 20, xxl: 24, xxxl: 32,
+}
+
+export const FontWeight = {
+  normal: '400' as const,
+  medium: '500' as const,
+  semibold: '600' as const,
+  bold: '700' as const,
+}

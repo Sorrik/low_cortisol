@@ -5,7 +5,7 @@ import { Repository } from 'typeorm';
 import { WaterData }                from './water.entity';
 import { CreateWaterDto }           from './dto/create-water.dto';
 import { UpdateWaterDto }           from './dto/update-water.dto';
-import { CacheInvalidationService } from '../insights/cache-invalidation.service';  // ← добавить
+import { CacheInvalidationService } from '../insights/cache-invalidation.service';  // в†ђ РґРѕР±Р°РІРёС‚СЊ
 
 @Injectable()
 export class WaterService {
@@ -13,7 +13,7 @@ export class WaterService {
     @InjectRepository(WaterData)
     private readonly waterRepo: Repository<WaterData>,
 
-    private readonly cacheInvalidation: CacheInvalidationService,  // ← добавить
+    private readonly cacheInvalidation: CacheInvalidationService,  // в†ђ РґРѕР±Р°РІРёС‚СЊ
   ) {}
 
   async create(userId: string, dto: CreateWaterDto): Promise<WaterData> {
@@ -25,7 +25,7 @@ export class WaterService {
     });
 
     const saved = await this.waterRepo.save(record);
-    await this.cacheInvalidation.invalidate(userId);  // ← добавить
+    await this.cacheInvalidation.invalidateWithMetric(userId, saved.date)
     return saved;
   }
 
@@ -38,14 +38,14 @@ export class WaterService {
     Object.assign(record, updates);
 
     const saved = await this.waterRepo.save(record);
-    await this.cacheInvalidation.invalidate(userId);  // ← добавить
+    await this.cacheInvalidation.invalidateWithMetric(userId, saved.date) // в†ђ РґРѕР±Р°РІРёС‚СЊ
     return saved;
   }
 
   async remove(userId: string, id: string): Promise<void> {
     const record = await this.findOne(userId, id);
     await this.waterRepo.remove(record);
-    await this.cacheInvalidation.invalidate(userId);  // ← добавить
+    await this.cacheInvalidation.invalidate(userId);  // в†ђ РґРѕР±Р°РІРёС‚СЊ
   }
 
   async findAll(

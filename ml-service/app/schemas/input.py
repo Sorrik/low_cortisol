@@ -9,10 +9,12 @@ from pydantic import BaseModel
 # ══════════════════════════════════════════════════════════════
 
 class SleepRecord(BaseModel):
-    date: str                           # "YYYY-MM-DD"
-    duration_hours: float               # часов сна
-    quality: float                      # 1–10
-    interruptions: Optional[int] = 0   # кол-во пробуждений
+    date: str
+    duration_hours: float
+    quality: float
+    interruptions: Optional[int] = 0
+    bed_time:  Optional[str] = None   # "23:30" ← добавить
+    wake_time: Optional[str] = None   # "07:00" ← добавить
 
 
 class MoodRecord(BaseModel):
@@ -27,8 +29,9 @@ class StressRecord(BaseModel):
 
 class ActivityRecord(BaseModel):
     date: str
+    time: Optional[str] = None        # "20:30" ← добавить
     duration_minutes: float
-    intensity: Optional[str] = "moderate"   # light | moderate | vigorous
+    intensity: Optional[str] = "moderate"
     calories_burned: Optional[float] = 0.0
 
 
@@ -39,6 +42,7 @@ class WaterRecord(BaseModel):
 
 class NutritionRecord(BaseModel):
     date: str
+    time: Optional[str] = None        # "21:30" ← добавить
     calories: float
     protein_grams: float
     carbs_grams: Optional[float] = 0.0
