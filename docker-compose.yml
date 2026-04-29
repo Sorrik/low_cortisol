@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -32,10 +32,15 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-low_cortisol_spike}
       JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS}
       ML_SERVICE_URL: http://ml-service:8000
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      VISION_MODEL: ${VISION_MODEL:-gpt-4o-mini}
+      VOICE_PARSE_MODEL: ${VOICE_PARSE_MODEL:-gpt-4o-mini}
+      TRANSCRIBE_BACKEND: ${TRANSCRIBE_BACKEND:-ml_service}
       FATSECRET_CLIENT_ID: ${FATSECRET_CLIENT_ID}
       FATSECRET_CLIENT_SECRET: ${FATSECRET_CLIENT_SECRET}
       CHROMA_URL: http://chromadb:8000
@@ -61,13 +66,21 @@ services:
       MODEL_PATH: /app/trained_models
       DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-low_cortisol_spike}
       CHROMA_URL: http://chromadb:8000
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      # Параметры локального Whisper (faster-whisper)
+      WHISPER_MODEL_SIZE: ${WHISPER_MODEL_SIZE:-small}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+      # HuggingFace кэш моделей, чтобы при перезапуске контейнера не перекачивать
+      HF_HOME: /root/.cache/huggingface
     volumes:
       - ./ml-service/trained_models:/app/trained_models
       - ./ml-service/app:/app/app
+      - whisper_cache:/root/.cache/huggingface
     depends_on:
       postgres:
         condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     networks:
       - app-network
 
@@ -119,6 +132,7 @@ services:
 volumes:
   postgres_data:
   chromadb_data:
+  whisper_cache:
 
 networks:
   app-network:

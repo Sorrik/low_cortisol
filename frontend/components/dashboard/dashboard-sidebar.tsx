@@ -19,6 +19,8 @@ import { cn } from "@/lib/utils"
 import { LowCorLogo } from "@/components/lowcor-logo"
 import { Button } from "@/components/ui/button"
 import { getProfile } from "@/lib/health-api"
+import api from "@/lib/api"
+import { clearAuth } from "@/lib/auth-store"
 
 const navItems = [
   { href: "/dashboard", label: "Обзор", icon: LayoutDashboard },
@@ -43,10 +45,17 @@ export function DashboardSidebar() {
       .catch(() => {})
   }, [])
 
-  function handleLogout() {
-    localStorage.removeItem("access_token")
-    localStorage.removeItem("user")
-    router.push("/login")
+  async function handleLogout() {
+    try {
+      // Сообщаем серверу обнулить refreshTokenHash и стереть HttpOnly cookie.
+      // Если запрос упадёт (например, токен уже истёк) — всё равно чистим клиент.
+      await api.post("/auth/logout")
+    } catch {
+      /* ignore */
+    } finally {
+      clearAuth()
+      router.push("/login")
+    }
   }
 
   const avatarLetter = firstName ? firstName[0].toUpperCase() : "?"

@@ -6,6 +6,7 @@ import { useState, useEffect, useRef } from "react"
 import { Search, X, Plus, Loader2 } from "lucide-react"
 import { Input }  from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import api from "@/lib/api"
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -39,24 +40,22 @@ async function searchFoods(query: string): Promise<FoodItem[]> {
   const cacheKey = query.toLowerCase().trim()
   if (searchCache.has(cacheKey)) return searchCache.get(cacheKey)!
 
-  const token = typeof window !== "undefined"
-    ? localStorage.getItem("access_token") ?? ""
-    : ""
-
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_API_URL}/nutrition/food-search?q=${encodeURIComponent(query)}`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  )
-
-  if (!res.ok) return []
-
-  const data = await res.json() as {
+  let data: {
     foods: Array<{
       food_id: string
       name:    string
       brand?:  string
       per100g: { kcal: number; protein: number; fat: number; carbs: number }
     }>
+  }
+
+  try {
+    const res = await api.get(
+      `/nutrition/food-search?q=${encodeURIComponent(query)}`,
+    )
+    data = res.data
+  } catch {
+    return []
   }
 
   // Маппим ответ FatSecret → локальный FoodItem (сохраняем proteins/fats)

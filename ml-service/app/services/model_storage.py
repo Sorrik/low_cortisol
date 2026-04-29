@@ -70,25 +70,32 @@ def _ensure_user_dir(user_id: str) -> Path:
 
 def save_model_meta(user_id: str, meta: Dict[str, Any]) -> None:
     """
-    Сохраняем meta.json.
+    ?????????????????? meta.json.
 
-    meta обязательно содержит:
+    meta ?????????????????????? ????????????????:
       - version         (str)       "v1", "v2", ...
       - trained_at      (str)       ISO datetime
       - samples         (int)
       - features        (int)
-      - feature_names   (list[str]) ← КРИТИЧНО для совпадения train/predict
+      - feature_names   (list[str]) ??? ???????????????? ?????? ???????????????????? train/predict
       - cv_mae          (float|None)
       - oob_r2          (float|None)
     """
     _ensure_user_dir(user_id)
     meta_path = get_meta_path(user_id)
+    tmp_path = f"{meta_path}.tmp"
 
     try:
-        with open(meta_path, "w", encoding="utf-8") as f:
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)
-        logger.info(f"[{user_id}] Meta saved → {meta_path} (version={meta.get('version')})")
+        os.replace(tmp_path, meta_path)
+        logger.info(f"[{user_id}] Meta saved -> {meta_path} (version={meta.get('version')})")
     except OSError as e:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
         logger.error(f"[{user_id}] Failed to save meta: {e}")
         raise
 

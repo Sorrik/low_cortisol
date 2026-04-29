@@ -1,9 +1,10 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import { useQuery } from '@tanstack/react-query'
-import { Colors, BorderRadius, Spacing, FontSize, FontWeight } from '@/constants/theme'
+import { BorderRadius, Spacing, FontSize, FontWeight } from '@/constants/theme'
+import { useTheme } from '@/context/ThemeContext'
 import { getFullStreakData, getUserLevel, getAchievements } from '@/lib/health-api'
 import { STREAK_MILESTONES } from '@/types/health'
 import { ProgressBar } from './ProgressBar'
@@ -16,7 +17,112 @@ function getDayWord(n: number): string {
 
 export function StreakWidget() {
   const router = useRouter()
+  const { colors } = useTheme()
   const [activeTab, setActiveTab] = useState<'any' | 'all' | 'goals'>('any')
+
+  const styles = useMemo(() => StyleSheet.create({
+    card: {
+      backgroundColor: colors.card,
+      borderRadius: BorderRadius.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: 'hidden',
+    },
+    skeleton: { height: 200, backgroundColor: colors.card },
+    skeletonInner: {
+      flex: 1,
+      backgroundColor: colors.secondary,
+      margin: Spacing.lg,
+      borderRadius: BorderRadius.lg,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      padding: Spacing.lg,
+    },
+    headerLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+    iconWrapper: {
+      width: 48,
+      height: 48,
+      borderRadius: BorderRadius.lg,
+      backgroundColor: colors.secondary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    iconWrapperFire: { backgroundColor: colors.streakMuted },
+    fireBadge: {
+      position: 'absolute',
+      top: -4,
+      right: -4,
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      backgroundColor: colors.gold,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    valueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+    value: { fontSize: FontSize.xxxl, fontWeight: FontWeight.bold, color: colors.foreground },
+    valueLabel: { fontSize: FontSize.sm, color: colors.mutedForeground },
+    bestText: { fontSize: FontSize.xs, color: colors.mutedForeground },
+    achievementsButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      backgroundColor: colors.secondary,
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: 6,
+      borderRadius: BorderRadius.md,
+    },
+    achievementsText: {
+      fontSize: FontSize.xs,
+      fontWeight: FontWeight.medium,
+      color: colors.mutedForeground,
+    },
+    tabs: {
+      flexDirection: 'row',
+      marginHorizontal: Spacing.lg,
+      marginBottom: Spacing.lg,
+      backgroundColor: colors.secondary,
+      borderRadius: BorderRadius.md,
+      padding: 4,
+    },
+    tab: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: BorderRadius.sm },
+    tabActive: { backgroundColor: colors.card },
+    tabText: { fontSize: FontSize.xs, fontWeight: FontWeight.medium, color: colors.mutedForeground },
+    tabTextActive: { color: colors.foreground },
+    progressSection: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg },
+    progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: Spacing.sm },
+    progressLabel: { fontSize: FontSize.xs, color: colors.mutedForeground },
+    progressRemaining: {
+      fontSize: FontSize.xs,
+      fontWeight: FontWeight.medium,
+      color: colors.streak,
+    },
+    divider: { height: 1, backgroundColor: colors.border },
+    statsRow: { flexDirection: 'row' },
+    statItem: { flex: 1, padding: Spacing.lg },
+    statDivider: { width: 1, backgroundColor: colors.border },
+    statHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      marginBottom: Spacing.sm,
+    },
+    statLabel: { fontSize: FontSize.xs, fontWeight: FontWeight.medium, color: colors.mutedForeground },
+    statValue: {
+      fontSize: FontSize.lg,
+      fontWeight: FontWeight.bold,
+      color: colors.foreground,
+      marginBottom: Spacing.sm,
+    },
+    statValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4, marginBottom: Spacing.sm },
+    statValueSecondary: { fontSize: FontSize.xs, color: colors.mutedForeground },
+    statProgressRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+    statProgressBar: { flex: 1, minWidth: 0 },
+    statXp: { fontSize: 10, color: colors.mutedForeground, flexShrink: 0 },
+  }), [colors])
 
   const { data: streakData, isLoading: loadingStreak } = useQuery({
     queryKey: ['fullStreak'],
@@ -69,7 +175,7 @@ export function StreakWidget() {
             <Ionicons
               name="flame"
               size={24}
-              color={activeStreak.current > 0 ? Colors.streak : Colors.mutedForeground}
+              color={activeStreak.current > 0 ? colors.streak : colors.mutedForeground}
             />
             {isOnFire && (
               <View style={styles.fireBadge}>
@@ -92,9 +198,9 @@ export function StreakWidget() {
           style={styles.achievementsButton}
           onPress={() => router.push('/(tabs)/achievements')}
         >
-          <Ionicons name="trophy" size={14} color={Colors.gold} />
+          <Ionicons name="trophy" size={14} color={colors.gold} />
           <Text style={styles.achievementsText}>Ачивки</Text>
-          <Ionicons name="chevron-forward" size={14} color={Colors.mutedForeground} />
+          <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />
         </TouchableOpacity>
       </View>
 
@@ -125,7 +231,7 @@ export function StreakWidget() {
         </View>
         <ProgressBar
           progress={milestoneProgress}
-          color={Colors.streak}
+          color={colors.streak}
           height={8}
         />
       </View>
@@ -137,13 +243,22 @@ export function StreakWidget() {
       <View style={styles.statsRow}>
         <View style={styles.statItem}>
           <View style={styles.statHeader}>
-            <Ionicons name="trending-up" size={16} color={Colors.primary} />
+            <Ionicons name="trending-up" size={16} color={colors.primary} />
             <Text style={styles.statLabel}>Уровень</Text>
           </View>
           <Text style={styles.statValue}>{levelInfo.name}</Text>
           <View style={styles.statProgressRow}>
-            <ProgressBar progress={levelProgress} height={6} />
-            <Text style={styles.statXp}>{levelInfo.xp}/{levelInfo.nextLevelXp}</Text>
+            <View style={styles.statProgressBar}>
+              <ProgressBar progress={levelProgress} height={6} />
+            </View>
+            <Text
+              style={styles.statXp}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+            >
+              {levelInfo.xp}/{levelInfo.nextLevelXp}
+            </Text>
           </View>
         </View>
 
@@ -151,7 +266,7 @@ export function StreakWidget() {
 
         <View style={styles.statItem}>
           <View style={styles.statHeader}>
-            <Ionicons name="trophy" size={16} color={Colors.gold} />
+            <Ionicons name="trophy" size={16} color={colors.gold} />
             <Text style={styles.statLabel}>Ачивки</Text>
           </View>
           <View style={styles.statValueRow}>
@@ -168,181 +283,3 @@ export function StreakWidget() {
   )
 }
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: Colors.card,
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    overflow: 'hidden',
-  },
-  skeleton: {
-    height: 200,
-    backgroundColor: Colors.card,
-  },
-  skeletonInner: {
-    flex: 1,
-    backgroundColor: Colors.secondary,
-    margin: Spacing.lg,
-    borderRadius: BorderRadius.lg,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    padding: Spacing.lg,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  iconWrapper: {
-    width: 48,
-    height: 48,
-    borderRadius: BorderRadius.lg,
-    backgroundColor: Colors.secondary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconWrapperFire: {
-    backgroundColor: Colors.streakMuted,
-  },
-  fireBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: Colors.gold,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  valueRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 6,
-  },
-  value: {
-    fontSize: FontSize.xxxl,
-    fontWeight: FontWeight.bold,
-    color: Colors.foreground,
-  },
-  valueLabel: {
-    fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
-  },
-  bestText: {
-    fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
-  },
-  achievementsButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.secondary,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 6,
-    borderRadius: BorderRadius.md,
-  },
-  achievementsText: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.medium,
-    color: Colors.mutedForeground,
-  },
-  tabs: {
-    flexDirection: 'row',
-    marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.lg,
-    backgroundColor: Colors.secondary,
-    borderRadius: BorderRadius.md,
-    padding: 4,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderRadius: BorderRadius.sm,
-  },
-  tabActive: {
-    backgroundColor: Colors.card,
-  },
-  tabText: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.medium,
-    color: Colors.mutedForeground,
-  },
-  tabTextActive: {
-    color: Colors.foreground,
-  },
-  progressSection: {
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.lg,
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: Spacing.sm,
-  },
-  progressLabel: {
-    fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
-  },
-  progressRemaining: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.medium,
-    color: Colors.streak,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.border,
-  },
-  statsRow: {
-    flexDirection: 'row',
-  },
-  statItem: {
-    flex: 1,
-    padding: Spacing.lg,
-  },
-  statDivider: {
-    width: 1,
-    backgroundColor: Colors.border,
-  },
-  statHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    marginBottom: Spacing.sm,
-  },
-  statLabel: {
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.medium,
-    color: Colors.mutedForeground,
-  },
-  statValue: {
-    fontSize: FontSize.lg,
-    fontWeight: FontWeight.bold,
-    color: Colors.foreground,
-    marginBottom: Spacing.sm,
-  },
-  statValueRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 4,
-    marginBottom: Spacing.sm,
-  },
-  statValueSecondary: {
-    fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
-  },
-  statProgressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  statXp: {
-    fontSize: 10,
-    color: Colors.mutedForeground,
-  },
-})

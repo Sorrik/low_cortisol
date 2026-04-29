@@ -106,7 +106,7 @@ export function StreakWidget({ className }: { className?: string }) {
                        text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
           >
             <Trophy className="h-3.5 w-3.5 text-amber-400" />
-            <span className="hidden sm:inline">Ачивки</span>
+            <span className="hidden sm:inline">Достижения</span>
             <ChevronRight className="h-3.5 w-3.5" />
           </Link>
         </div>
@@ -171,7 +171,7 @@ export function StreakWidget({ className }: { className?: string }) {
         <div className="px-5 py-4">
           <div className="flex items-center gap-2 mb-2">
             <Trophy className="h-4 w-4 text-amber-400" />
-            <span className="text-xs font-medium text-muted-foreground">Ачивки</span>
+            <span className="text-xs font-medium text-muted-foreground">Достижения</span>
           </div>
           <div className="flex items-baseline gap-1.5 mb-2">
             <span className="text-lg font-bold text-foreground">{unlockedBadges}</span>

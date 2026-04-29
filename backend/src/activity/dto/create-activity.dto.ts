@@ -31,6 +31,12 @@ export class CreateActivityDto {
   @Min(0)
   caloriesBurned?: number;
 
+  @ApiPropertyOptional({ example: 8000, minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  steps?: number;
+
   @ApiPropertyOptional({ example: 'Прогулка в парке' })
   @IsOptional()
   @IsString()

@@ -4,15 +4,24 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { User } from '../users/user.entity';
 
 @Entity('activitydata')
+@Index('idx_activity_user_date', ['userId', 'date'])
 export class ActivityData {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
   @Column({ name: 'userid' })
   userId!: string;
+
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'userid' })
+  user!: User;
 
   @Column({ type: 'date' })
   date!: string;
@@ -31,6 +40,9 @@ export class ActivityData {
 
   @Column({ type: 'int', nullable: true })
   caloriesBurned!: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  steps!: number | null;
 
   @Column({ type: 'text', nullable: true })
   notes!: string | null;

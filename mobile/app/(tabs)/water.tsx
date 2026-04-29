@@ -18,9 +18,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Rect, Text as SvgText, Line } from 'react-native-svg';
-import { Colors, Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { Spacing, FontSize, FontWeight, BorderRadius, DarkColors } from '@/constants/theme';
+import { useTheme } from '@/context/ThemeContext';
 import { getWaterRecords, addWaterRecord, updateWaterRecord, deleteWaterRecord } from '@/lib/health-api';
 import type { WaterRecord } from '@/types/health';
+
+type ColorPalette = typeof DarkColors;
+const useStyles = () => {
+  const { colors } = useTheme();
+  return useMemo(() => createStyles(colors), [colors]);
+};
 
 const CHART_HEIGHT = 180;
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -53,6 +60,8 @@ function toLocalDateStr(date: Date): string {
 
 // Animated Card
 function AnimatedCard({ children, index, style }: { children: React.ReactNode; index: number; style?: any }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(20)).current;
 
@@ -72,6 +81,8 @@ function AnimatedCard({ children, index, style }: { children: React.ReactNode; i
 
 // Water Glass Button
 function WaterGlassButton({ filled, onPress, size = 40 }: { filled: boolean; onPress: () => void; size?: number }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
@@ -96,7 +107,7 @@ function WaterGlassButton({ filled, onPress, size = 40 }: { filled: boolean; onP
           filled && styles.glassButtonFilled,
         ]}
       >
-        <Ionicons name="water" size={size * 0.5} color={filled ? '#fff' : Colors.water} />
+        <Ionicons name="water" size={size * 0.5} color={filled ? '#fff' : colors.water} />
       </Animated.View>
     </TouchableOpacity>
   );
@@ -114,6 +125,8 @@ function HistoryItem({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const [showActions, setShowActions] = useState(false);
   const isGoalMet = record.glasses >= GOAL_GLASSES;
@@ -136,8 +149,8 @@ function HistoryItem({
       >
         <Animated.View style={[styles.historyCard, { transform: [{ scale: scaleAnim }] }]}>
           <View style={styles.historyMain}>
-            <View style={[styles.historyIconWrapper, { backgroundColor: Colors.waterMuted }]}>
-              <Ionicons name="water" size={18} color={Colors.water} />
+            <View style={[styles.historyIconWrapper, { backgroundColor: colors.waterMuted }]}>
+              <Ionicons name="water" size={18} color={colors.water} />
             </View>
             <View style={styles.historyContent}>
               <Text style={styles.historyDate}>
@@ -145,7 +158,7 @@ function HistoryItem({
               </Text>
               {isGoalMet && (
                 <View style={styles.goalMetBadge}>
-                  <Ionicons name="checkmark-circle" size={12} color={Colors.success} />
+                  <Ionicons name="checkmark-circle" size={12} color={colors.success} />
                   <Text style={styles.goalMetText}>Цель достигнута</Text>
                 </View>
               )}
@@ -159,12 +172,12 @@ function HistoryItem({
           {showActions && (
             <View style={styles.actionsRow}>
               <TouchableOpacity style={styles.actionButton} onPress={onEdit} activeOpacity={0.7}>
-                <Ionicons name="pencil" size={16} color={Colors.primary} />
-                <Text style={[styles.actionText, { color: Colors.primary }]}>Изменить</Text>
+                <Ionicons name="pencil" size={16} color={colors.primary} />
+                <Text style={[styles.actionText, { color: colors.primary }]}>Изменить</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionButton} onPress={onDelete} activeOpacity={0.7}>
-                <Ionicons name="trash" size={16} color={Colors.destructive} />
-                <Text style={[styles.actionText, { color: Colors.destructive }]}>Удалить</Text>
+                <Ionicons name="trash" size={16} color={colors.destructive} />
+                <Text style={[styles.actionText, { color: colors.destructive }]}>Удалить</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -188,6 +201,8 @@ function WaterModal({
   editRecord: WaterRecord | null;
   isLoading: boolean;
 }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const [date, setDate] = useState(toLocalDateStr(new Date()));
   const [glasses, setGlasses] = useState(1);
 
@@ -231,13 +246,13 @@ function WaterModal({
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Дата</Text>
               <View style={styles.inputWrapper}>
-                <Ionicons name="calendar" size={18} color={Colors.mutedForeground} />
+                <Ionicons name="calendar" size={18} color={colors.mutedForeground} />
                 <TextInput
                   style={styles.input}
                   value={date}
                   onChangeText={setDate}
                   placeholder="YYYY-MM-DD"
-                  placeholderTextColor={Colors.mutedForeground}
+                  placeholderTextColor={colors.mutedForeground}
                 />
               </View>
             </View>
@@ -255,7 +270,7 @@ function WaterModal({
                   onPress={() => setGlasses(Math.max(1, glasses - 1))}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="remove" size={20} color={Colors.foreground} />
+                  <Ionicons name="remove" size={20} color={colors.foreground} />
                 </TouchableOpacity>
                 <Text style={styles.glassesValue}>{glasses}</Text>
                 <TouchableOpacity
@@ -263,7 +278,7 @@ function WaterModal({
                   onPress={() => setGlasses(glasses + 1)}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="add" size={20} color={Colors.foreground} />
+                  <Ionicons name="add" size={20} color={colors.foreground} />
                 </TouchableOpacity>
               </View>
             </View>
@@ -273,7 +288,7 @@ function WaterModal({
                 <Text style={styles.cancelButtonText}>Отмена</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.saveButton, { backgroundColor: Colors.water }, isLoading && styles.saveButtonDisabled]}
+                style={[styles.saveButton, { backgroundColor: colors.water }, isLoading && styles.saveButtonDisabled]}
                 onPress={handleSave}
                 disabled={isLoading}
                 activeOpacity={0.8}
@@ -296,6 +311,8 @@ function WaterModal({
 }
 
 export default function WaterScreen() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -356,11 +373,6 @@ export default function WaterScreen() {
     }
   };
 
-  // Quick add 1 glass for today
-  const handleQuickAdd = () => {
-    addMutation.mutate({ date: todayStr, glasses: 1 });
-  };
-
   const chartData = useMemo(() => aggregateByDay(records), [records]);
   const avgGlasses = useMemo(() => {
     if (chartData.length === 0) return 0;
@@ -388,13 +400,13 @@ export default function WaterScreen() {
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
         {/* Header */}
         <Animated.View style={[styles.header, { opacity: headerFade, transform: [{ translateY: headerTranslate }] }]}>
           <View style={styles.headerLeft}>
-            <View style={[styles.iconWrapper, { backgroundColor: Colors.waterMuted }]}>
-              <Ionicons name="water" size={26} color={Colors.water} />
+            <View style={[styles.iconWrapper, { backgroundColor: colors.waterMuted }]}>
+              <Ionicons name="water" size={26} color={colors.water} />
             </View>
             <View>
               <Text style={styles.title}>Вода</Text>
@@ -402,7 +414,7 @@ export default function WaterScreen() {
             </View>
           </View>
           <TouchableOpacity
-            style={[styles.addHeaderButton, { backgroundColor: Colors.water }]}
+            style={[styles.addHeaderButton, { backgroundColor: colors.water }]}
             onPress={() => {
               setEditRecord(null);
               setModalVisible(true);
@@ -419,13 +431,13 @@ export default function WaterScreen() {
             <Text style={styles.todayLabel}>Сегодня</Text>
             {todayGlasses >= GOAL_GLASSES && (
               <View style={styles.goalCompleteBadge}>
-                <Ionicons name="checkmark-circle" size={14} color={Colors.success} />
+                <Ionicons name="checkmark-circle" size={14} color={colors.success} />
                 <Text style={styles.goalCompleteText}>Цель достигнута!</Text>
               </View>
             )}
           </View>
 
-          <View style={styles.todayContent}>
+          <View style={styles.todayRingWrap}>
             <View style={styles.progressRing}>
               <View style={styles.progressRingInner}>
                 <Text style={styles.progressValue}>{todayGlasses}</Text>
@@ -433,39 +445,44 @@ export default function WaterScreen() {
               </View>
               <View style={[styles.progressArc, { transform: [{ rotate: `${todayProgress * 3.6}deg` }] }]} />
             </View>
+          </View>
 
-            <View style={styles.quickAddSection}>
+          <View style={styles.quickAddSection}>
               <Text style={styles.quickAddLabel}>Быстрое добавление</Text>
               <View style={styles.quickAddButtons}>
-                <TouchableOpacity style={styles.quickAddButton} onPress={handleQuickAdd} activeOpacity={0.8}>
-                  <Ionicons name="water" size={18} color={Colors.water} />
-                  <Text style={styles.quickAddText}>+1</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.quickAddButton}
-                  onPress={() => addMutation.mutate({ date: todayStr, glasses: 2 })}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="water" size={18} color={Colors.water} />
-                  <Text style={styles.quickAddText}>+2</Text>
-                </TouchableOpacity>
+                {[
+                  { glasses: 1, label: 'Кружка' },
+                  { glasses: 2, label: '0.5 л' },
+                  { glasses: 3, label: '0.75 л' },
+                  { glasses: 4, label: '1 л' },
+                ].map((preset) => (
+                  <TouchableOpacity
+                    key={preset.glasses}
+                    style={styles.quickAddButton}
+                    onPress={() => addMutation.mutate({ date: todayStr, glasses: preset.glasses })}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="water" size={16} color={colors.water} />
+                    <Text style={styles.quickAddText}>+{preset.glasses}</Text>
+                    <Text style={styles.quickAddSub}>{preset.label}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
             </View>
-          </View>
         </AnimatedCard>
 
         {/* Stats row */}
         <View style={styles.statsRow}>
           <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <View style={[styles.statIconBg, { backgroundColor: Colors.waterMuted }]}>
-              <Ionicons name="analytics" size={18} color={Colors.water} />
+            <View style={[styles.statIconBg, { backgroundColor: colors.waterMuted }]}>
+              <Ionicons name="analytics" size={18} color={colors.water} />
             </View>
             <Text style={styles.statValue}>{avgGlasses}</Text>
             <Text style={styles.statLabel}>среднее / день</Text>
           </AnimatedCard>
           <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <View style={[styles.statIconBg, { backgroundColor: Colors.primaryMuted }]}>
-              <Ionicons name="document-text" size={18} color={Colors.primary} />
+            <View style={[styles.statIconBg, { backgroundColor: colors.primaryMuted }]}>
+              <Ionicons name="document-text" size={18} color={colors.primary} />
             </View>
             <Text style={styles.statValue}>{records.length}</Text>
             <Text style={styles.statLabel}>записей</Text>
@@ -477,7 +494,7 @@ export default function WaterScreen() {
           <Text style={styles.cardTitle}>Потребление воды за 7 дней</Text>
           {chartData.length === 0 ? (
             <View style={styles.emptyChart}>
-              <Ionicons name="bar-chart-outline" size={32} color={Colors.mutedForeground} />
+              <Ionicons name="bar-chart-outline" size={32} color={colors.mutedForeground} />
               <Text style={styles.emptyText}>Нет данных за последние 7 дней</Text>
             </View>
           ) : (
@@ -489,7 +506,7 @@ export default function WaterScreen() {
                   y1={CHART_HEIGHT - 35 - ((GOAL_GLASSES / maxGlasses) * (CHART_HEIGHT - 50))}
                   x2={CHART_WIDTH}
                   y2={CHART_HEIGHT - 35 - ((GOAL_GLASSES / maxGlasses) * (CHART_HEIGHT - 50))}
-                  stroke={Colors.primary}
+                  stroke={colors.primary}
                   strokeWidth={2}
                   strokeDasharray="6,4"
                 />
@@ -497,7 +514,7 @@ export default function WaterScreen() {
                   x={CHART_WIDTH - 4}
                   y={CHART_HEIGHT - 40 - ((GOAL_GLASSES / maxGlasses) * (CHART_HEIGHT - 50))}
                   fontSize={10}
-                  fill={Colors.primary}
+                  fill={colors.primary}
                   textAnchor="end"
                 >
                   Цель: {GOAL_GLASSES}
@@ -511,11 +528,11 @@ export default function WaterScreen() {
                   const isGoalMet = d.glasses >= GOAL_GLASSES;
                   return (
                     <React.Fragment key={i}>
-                      <Rect x={x} y={y} width={barWidth} height={barHeight} rx={8} fill={isGoalMet ? Colors.success : Colors.water} />
-                      <SvgText x={x + barWidth / 2} y={CHART_HEIGHT - 12} fontSize={10} fill={Colors.mutedForeground} textAnchor="middle">
+                      <Rect x={x} y={y} width={barWidth} height={barHeight} rx={8} fill={isGoalMet ? colors.success : colors.water} />
+                      <SvgText x={x + barWidth / 2} y={CHART_HEIGHT - 12} fontSize={10} fill={colors.mutedForeground} textAnchor="middle">
                         {d.date}
                       </SvgText>
-                      <SvgText x={x + barWidth / 2} y={y - 8} fontSize={11} fill={Colors.foreground} fontWeight="600" textAnchor="middle">
+                      <SvgText x={x + barWidth / 2} y={y - 8} fontSize={11} fill={colors.foreground} fontWeight="600" textAnchor="middle">
                         {d.glasses}
                       </SvgText>
                     </React.Fragment>
@@ -533,14 +550,14 @@ export default function WaterScreen() {
             {hasMoreRecords && (
               <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
                 <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
-                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.primary} />
+                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
               </TouchableOpacity>
             )}
           </View>
 
           {records.length === 0 ? (
             <View style={styles.emptyHistory}>
-              <Ionicons name="water-outline" size={40} color={Colors.mutedForeground} />
+              <Ionicons name="water-outline" size={40} color={colors.mutedForeground} />
               <Text style={styles.emptyTitle}>Нет записей</Text>
               <Text style={styles.emptyHint}>Добавьте первую запись воды</Text>
             </View>
@@ -564,7 +581,7 @@ export default function WaterScreen() {
 
         {/* FAB */}
         <TouchableOpacity
-          style={[styles.fabButton, { backgroundColor: Colors.water }]}
+          style={[styles.fabButton, { backgroundColor: colors.water }]}
           onPress={() => {
             setEditRecord(null);
             setModalVisible(true);
@@ -592,91 +609,101 @@ export default function WaterScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   content: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.lg },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   iconWrapper: { width: 52, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  title: { fontSize: FontSize.xxl, fontWeight: FontWeight.bold, color: Colors.foreground },
-  subtitle: { fontSize: FontSize.sm, color: Colors.mutedForeground, marginTop: 2 },
+  title: { fontSize: FontSize.xxl, fontWeight: FontWeight.bold, color: colors.foreground },
+  subtitle: { fontSize: FontSize.sm, color: colors.mutedForeground, marginTop: 2 },
   addHeaderButton: {
     width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
-    ...Platform.select({ ios: { shadowColor: Colors.water, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 }, android: { elevation: 6 } }),
+    ...Platform.select({ ios: { shadowColor: colors.water, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 }, android: { elevation: 6 } }),
   },
   todayCard: {
-    backgroundColor: Colors.card, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: Colors.border, padding: Spacing.lg, marginBottom: Spacing.md,
+    backgroundColor: colors.card, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: colors.border, padding: Spacing.lg, marginBottom: Spacing.md,
     ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8 }, android: { elevation: 2 } }),
   },
   todayHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.lg },
-  todayLabel: { fontSize: FontSize.sm, color: Colors.mutedForeground },
-  goalCompleteBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.successMuted, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-  goalCompleteText: { fontSize: FontSize.xs, fontWeight: FontWeight.semibold, color: Colors.success },
+  todayLabel: { fontSize: FontSize.sm, color: colors.mutedForeground },
+  goalCompleteBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.successMuted, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  goalCompleteText: { fontSize: FontSize.xs, fontWeight: FontWeight.semibold, color: colors.success },
   todayContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
-  progressRing: { width: 100, height: 100, borderRadius: 50, borderWidth: 8, borderColor: Colors.secondary, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  todayRingWrap: { alignItems: 'center', marginBottom: Spacing.lg },
+  progressRing: { width: 100, height: 100, borderRadius: 50, borderWidth: 8, borderColor: colors.secondary, alignItems: 'center', justifyContent: 'center', position: 'relative' },
   progressRingInner: { alignItems: 'center' },
-  progressValue: { fontSize: 28, fontWeight: FontWeight.bold, color: Colors.foreground },
-  progressGoal: { fontSize: FontSize.xs, color: Colors.mutedForeground },
-  progressArc: { position: 'absolute', width: 100, height: 100, borderRadius: 50, borderWidth: 8, borderColor: Colors.water, borderTopColor: 'transparent', borderRightColor: 'transparent' },
-  quickAddSection: { alignItems: 'center', gap: Spacing.sm },
-  quickAddLabel: { fontSize: FontSize.xs, color: Colors.mutedForeground },
-  quickAddButtons: { flexDirection: 'row', gap: Spacing.sm },
-  quickAddButton: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.waterMuted, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
-  quickAddText: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.water },
+  progressValue: { fontSize: 28, fontWeight: FontWeight.bold, color: colors.foreground },
+  progressGoal: { fontSize: FontSize.xs, color: colors.mutedForeground },
+  progressArc: { position: 'absolute', width: 100, height: 100, borderRadius: 50, borderWidth: 8, borderColor: colors.water, borderTopColor: 'transparent', borderRightColor: 'transparent' },
+  quickAddSection: { gap: Spacing.sm },
+  quickAddLabel: { fontSize: FontSize.xs, color: colors.mutedForeground, alignSelf: 'center' },
+  quickAddButtons: { flexDirection: 'row', gap: 8 },
+  quickAddButton: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: colors.waterMuted,
+    paddingHorizontal: 4,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  quickAddText: { fontSize: FontSize.base, fontWeight: FontWeight.bold, color: colors.water },
+  quickAddSub: { fontSize: 10, color: colors.mutedForeground, textAlign: 'center' },
   statsRow: { flexDirection: 'row', gap: Spacing.md, marginBottom: Spacing.lg },
-  statCard: { flex: 1, backgroundColor: Colors.card, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', paddingVertical: Spacing.lg, gap: 6 },
+  statCard: { flex: 1, backgroundColor: colors.card, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: colors.border, alignItems: 'center', paddingVertical: Spacing.lg, gap: 6 },
   statIconBg: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  statValue: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.foreground },
-  statLabel: { fontSize: 10, color: Colors.mutedForeground, textTransform: 'uppercase', letterSpacing: 0.3 },
-  chartCard: { backgroundColor: Colors.card, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: Colors.border, padding: Spacing.lg, marginBottom: Spacing.lg },
-  cardTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.mutedForeground, marginBottom: Spacing.md },
+  statValue: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: colors.foreground },
+  statLabel: { fontSize: 10, color: colors.mutedForeground, textTransform: 'uppercase', letterSpacing: 0.3 },
+  chartCard: { backgroundColor: colors.card, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: colors.border, padding: Spacing.lg, marginBottom: Spacing.lg },
+  cardTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: colors.mutedForeground, marginBottom: Spacing.md },
   chartContainer: { alignItems: 'center' },
   emptyChart: { height: 140, alignItems: 'center', justifyContent: 'center', gap: Spacing.sm },
-  emptyText: { fontSize: FontSize.sm, color: Colors.mutedForeground },
+  emptyText: { fontSize: FontSize.sm, color: colors.mutedForeground },
   historySection: { marginBottom: Spacing.lg },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
-  sectionTitle: { fontSize: FontSize.lg, fontWeight: FontWeight.semibold, color: Colors.foreground },
+  sectionTitle: { fontSize: FontSize.lg, fontWeight: FontWeight.semibold, color: colors.foreground },
   expandButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  expandText: { fontSize: FontSize.sm, color: Colors.primary, fontWeight: FontWeight.medium },
-  emptyHistory: { backgroundColor: Colors.card, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', paddingVertical: Spacing.xxl, gap: Spacing.sm },
-  emptyTitle: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: Colors.foreground },
-  emptyHint: { fontSize: FontSize.sm, color: Colors.mutedForeground },
+  expandText: { fontSize: FontSize.sm, color: colors.primary, fontWeight: FontWeight.medium },
+  emptyHistory: { backgroundColor: colors.card, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: colors.border, alignItems: 'center', paddingVertical: Spacing.xxl, gap: Spacing.sm },
+  emptyTitle: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: colors.foreground },
+  emptyHint: { fontSize: FontSize.sm, color: colors.mutedForeground },
   historyList: { gap: Spacing.sm },
-  historyCard: { backgroundColor: Colors.card, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: Colors.border, overflow: 'hidden' },
+  historyCard: { backgroundColor: colors.card, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
   historyMain: { flexDirection: 'row', alignItems: 'center', padding: Spacing.md, gap: Spacing.md },
   historyIconWrapper: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   historyContent: { flex: 1 },
-  historyDate: { fontSize: FontSize.base, fontWeight: FontWeight.medium, color: Colors.foreground },
+  historyDate: { fontSize: FontSize.base, fontWeight: FontWeight.medium, color: colors.foreground },
   goalMetBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  goalMetText: { fontSize: FontSize.xs, color: Colors.success },
+  goalMetText: { fontSize: FontSize.xs, color: colors.success },
   historyStats: { alignItems: 'flex-end' },
-  historyValue: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.foreground },
-  historyUnit: { fontSize: FontSize.xs, color: Colors.mutedForeground },
-  actionsRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: Colors.border },
+  historyValue: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: colors.foreground },
+  historyUnit: { fontSize: FontSize.xs, color: colors.mutedForeground },
+  actionsRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.border },
   actionButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12 },
   actionText: { fontSize: FontSize.sm, fontWeight: FontWeight.medium },
   fabButton: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, paddingVertical: 16, borderRadius: BorderRadius.xl,
-    ...Platform.select({ ios: { shadowColor: Colors.water, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 }, android: { elevation: 6 } }),
+    ...Platform.select({ ios: { shadowColor: colors.water, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 }, android: { elevation: 6 } }),
   },
   fabText: { color: '#fff', fontSize: FontSize.base, fontWeight: FontWeight.semibold },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: Colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: Spacing.lg, paddingBottom: Platform.OS === 'ios' ? 40 : Spacing.lg },
-  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: Colors.border, alignSelf: 'center', marginBottom: Spacing.lg },
-  modalTitle: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.foreground, marginBottom: Spacing.lg, textAlign: 'center' },
+  modalContent: { backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: Spacing.lg, paddingBottom: Platform.OS === 'ios' ? 40 : Spacing.lg },
+  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginBottom: Spacing.lg },
+  modalTitle: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: colors.foreground, marginBottom: Spacing.lg, textAlign: 'center' },
   inputGroup: { marginBottom: Spacing.md },
-  inputLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.foreground, marginBottom: 8 },
-  inputWrapper: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: Colors.secondary, borderRadius: BorderRadius.lg, paddingHorizontal: Spacing.md, paddingVertical: 12 },
-  input: { flex: 1, fontSize: FontSize.base, color: Colors.foreground },
+  inputLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: colors.foreground, marginBottom: 8 },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: colors.secondary, borderRadius: BorderRadius.lg, paddingHorizontal: Spacing.md, paddingVertical: 12 },
+  input: { flex: 1, fontSize: FontSize.base, color: colors.foreground },
   glassesGrid: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: Spacing.md },
-  glassButton: { borderRadius: 12, borderWidth: 2, borderColor: Colors.water, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.waterMuted },
-  glassButtonFilled: { backgroundColor: Colors.water, borderColor: Colors.water },
+  glassButton: { borderRadius: 12, borderWidth: 2, borderColor: colors.water, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.waterMuted },
+  glassButtonFilled: { backgroundColor: colors.water, borderColor: colors.water },
   glassesButtons: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.lg },
-  glassesAdjustButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.secondary, alignItems: 'center', justifyContent: 'center' },
-  glassesValue: { fontSize: FontSize.xxl, fontWeight: FontWeight.bold, color: Colors.foreground, minWidth: 40, textAlign: 'center' },
+  glassesAdjustButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.secondary, alignItems: 'center', justifyContent: 'center' },
+  glassesValue: { fontSize: FontSize.xxl, fontWeight: FontWeight.bold, color: colors.foreground, minWidth: 40, textAlign: 'center' },
   modalActions: { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.lg },
-  cancelButton: { flex: 1, paddingVertical: 14, borderRadius: BorderRadius.lg, backgroundColor: Colors.secondary, alignItems: 'center' },
-  cancelButtonText: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: Colors.foreground },
+  cancelButton: { flex: 1, paddingVertical: 14, borderRadius: BorderRadius.lg, backgroundColor: colors.secondary, alignItems: 'center' },
+  cancelButtonText: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: colors.foreground },
   saveButton: { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: BorderRadius.lg },
   saveButtonDisabled: { opacity: 0.6 },
   saveButtonText: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: '#fff' },

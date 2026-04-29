@@ -1,7 +1,8 @@
 // components/dashboard/ProgressBar.tsx
 import React from 'react'
 import { View, StyleSheet } from 'react-native'
-import { Colors, BorderRadius } from '@/constants/theme'
+import { BorderRadius } from '@/constants/theme'
+import { useTheme } from '@/context/ThemeContext'
 
 interface Props {
   progress: number   // 0–100
@@ -9,21 +10,22 @@ interface Props {
   color?:   string
 }
 
-export function ProgressBar({ progress, height = 6, color = Colors.primary }: Props) {
+export function ProgressBar({ progress, height = 6, color }: Props) {
+  const { colors } = useTheme()
+  const fillColor = color ?? colors.primary
   const w = Math.max(0, Math.min(100, progress))
   return (
-    <View style={[styles.track, { height }]}>
-      <View style={[styles.fill, { width: `${w}%` as any, backgroundColor: color, height }]} />
+    <View style={[styles.track, { backgroundColor: colors.border, height }]}>
+      <View style={[styles.fill, { width: `${w}%` as any, backgroundColor: fillColor, height }]} />
     </View>
   )
 }
 
 const styles = StyleSheet.create({
   track: {
-    width:           '100%',
-    backgroundColor: Colors.border,
-    borderRadius:    BorderRadius.full,
-    overflow:        'hidden',
+    width:        '100%',
+    borderRadius: BorderRadius.full,
+    overflow:     'hidden',
   },
   fill: {
     borderRadius: BorderRadius.full,

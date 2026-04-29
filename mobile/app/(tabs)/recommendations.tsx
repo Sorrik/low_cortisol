@@ -1,5 +1,5 @@
 // app/(tabs)/recommendations.tsx
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -9,37 +9,45 @@ import {
   TouchableOpacity,
   Animated,
   Platform,
-  Dimensions,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles';
+import { useTheme } from '@/context/ThemeContext';
+
 import { getInsights } from '@/lib/health-api';
-import { Card, CardContent } from '@/components/ui/Card';
 import { ProgressBar } from '@/components/dashboard/ProgressBar';
+import { AnomalyBanner } from '@/components/dashboard/AnomalyBanner';
 import type { Recommendation, MetricType } from '@/types/health';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
-const metricConfig: Record<MetricType, { icon: keyof typeof Ionicons.glyphMap; label: string; color: string; bgColor: string }> = {
-  sleep: { icon: 'moon', label: 'Сон', color: Colors.sleep, bgColor: Colors.sleepMuted },
-  food: { icon: 'restaurant', label: 'Питание', color: Colors.nutrition, bgColor: Colors.nutritionMuted },
-  mood: { icon: 'happy', label: 'Настроение', color: Colors.mood, bgColor: Colors.moodMuted },
-  stress: { icon: 'pulse', label: 'Стресс', color: Colors.stress, bgColor: Colors.stressMuted },
-  activity: { icon: 'flame', label: 'Активность', color: Colors.activity, bgColor: Colors.activityMuted },
-  water: { icon: 'water', label: 'Вода', color: Colors.water, bgColor: Colors.waterMuted },
-};
+const buildMetricConfig = (colors: ColorPalette): Record<MetricType, { icon: keyof typeof Ionicons.glyphMap; label: string; color: string; bgColor: string }> => ({
+  sleep: { icon: 'moon', label: 'Сон', color: colors.sleep, bgColor: colors.sleepMuted },
+  food: { icon: 'restaurant', label: 'Питание', color: colors.nutrition, bgColor: colors.nutritionMuted },
+  mood: { icon: 'happy', label: 'Настроение', color: colors.mood, bgColor: colors.moodMuted },
+  stress: { icon: 'pulse', label: 'Стресс', color: colors.stress, bgColor: colors.stressMuted },
+  activity: { icon: 'flame', label: 'Активность', color: colors.activity, bgColor: colors.activityMuted },
+  water: { icon: 'water', label: 'Вода', color: colors.water, bgColor: colors.waterMuted },
+});
 
-const severityConfig = {
-  alert: { label: 'Внимание', icon: 'alert-circle' as const, color: Colors.destructive, bgColor: Colors.destructiveMuted },
-  attention: { label: 'Улучшить', icon: 'warning' as const, color: Colors.warning, bgColor: Colors.warningMuted },
-  good: { label: 'Отлично', icon: 'checkmark-circle' as const, color: Colors.success, bgColor: Colors.successMuted },
-};
+const buildSeverityConfig = (colors: ColorPalette) => ({
+  alert: { label: 'Внимание', icon: 'alert-circle' as const, color: colors.destructive, bgColor: colors.destructiveMuted },
+  attention: { label: 'Улучшить', icon: 'warning' as const, color: colors.warning, bgColor: colors.warningMuted },
+  good: { label: 'Отлично', icon: 'checkmark-circle' as const, color: colors.success, bgColor: colors.successMuted },
+});
 
 // Animated Card Wrapper
 function AnimatedCard({ children, index, style }: { children: React.ReactNode; index: number; style?: any }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(24)).current;
   const scale = useRef(new Animated.Value(0.95)).current;
@@ -90,6 +98,8 @@ function StatCard({
   color: string; 
   index: number;
 }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
@@ -119,11 +129,34 @@ function StatCard({
   );
 }
 
-// Recommendation Card
-function RecommendationCard({ rec, index }: { rec: Recommendation; index: number }) {
+// Recommendation Card (accordion)
+function RecommendationCard({
+  rec,
+  index,
+  isExpanded,
+  onToggle,
+}: {
+  rec: Recommendation;
+  index: number;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
+  const metricConfig = useMemo(() => buildMetricConfig(colors), [colors]);
+  const severityConfig = useMemo(() => buildSeverityConfig(colors), [colors]);
   const metric = metricConfig[rec.metric] || metricConfig.mood;
   const severity = severityConfig[rec.severity] || severityConfig.good;
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const chevronAnim = useRef(new Animated.Value(isExpanded ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(chevronAnim, {
+      toValue: isExpanded ? 1 : 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [isExpanded]);
 
   const handlePressIn = () => {
     Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: true }).start();
@@ -133,24 +166,33 @@ function RecommendationCard({ rec, index }: { rec: Recommendation; index: number
     Animated.spring(scaleAnim, { toValue: 1, friction: 3, tension: 100, useNativeDriver: true }).start();
   };
 
+  const handlePress = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    onToggle();
+  };
+
+  const chevronRotate = chevronAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '180deg'],
+  });
+
   return (
     <AnimatedCard index={index}>
       <TouchableOpacity
         activeOpacity={1}
+        onPress={handlePress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
       >
         <Animated.View style={[styles.recCard, { transform: [{ scale: scaleAnim }] }]}>
-          {/* Gradient-like accent bar */}
           <View style={[styles.recAccent, { backgroundColor: severity.color }]} />
-          
+
           <View style={styles.recContent}>
-            {/* Header */}
             <View style={styles.recHeader}>
               <View style={[styles.recIconContainer, { backgroundColor: metric.bgColor }]}>
                 <Ionicons name={metric.icon} size={22} color={metric.color} />
               </View>
-              
+
               <View style={styles.recHeaderText}>
                 <View style={styles.recMetricRow}>
                   <Text style={[styles.recMetricLabel, { color: metric.color }]}>{metric.label}</Text>
@@ -159,18 +201,23 @@ function RecommendationCard({ rec, index }: { rec: Recommendation; index: number
                     <Text style={[styles.severityText, { color: severity.color }]}>{severity.label}</Text>
                   </View>
                 </View>
-                <Text style={styles.recTitle} numberOfLines={2}>{rec.title}</Text>
+                <Text style={styles.recTitle} numberOfLines={isExpanded ? undefined : 2}>{rec.title}</Text>
               </View>
+
+              <Animated.View style={{ transform: [{ rotate: chevronRotate }], alignSelf: 'center' }}>
+                <Ionicons name="chevron-down" size={20} color={colors.mutedForeground} />
+              </Animated.View>
             </View>
 
-            {/* Description */}
-            <Text style={styles.recDescription}>{rec.description}</Text>
-
-            {/* Action hint */}
-            <View style={styles.recFooter}>
-              <Ionicons name="arrow-forward-circle" size={16} color={Colors.mutedForeground} />
-              <Text style={styles.recAction}>Подробнее</Text>
-            </View>
+            {isExpanded && (
+              <>
+                <Text style={styles.recDescription}>{rec.description}</Text>
+                <View style={styles.recFooter}>
+                  <Ionicons name="arrow-forward-circle" size={16} color={colors.mutedForeground} />
+                  <Text style={styles.recAction}>Подробнее</Text>
+                </View>
+              </>
+            )}
           </View>
         </Animated.View>
       </TouchableOpacity>
@@ -180,6 +227,8 @@ function RecommendationCard({ rec, index }: { rec: Recommendation; index: number
 
 // Section Header
 function SectionHeader({ icon, title, color, count }: { icon: keyof typeof Ionicons.glyphMap; title: string; color: string; count: number }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   return (
     <View style={styles.sectionHeader}>
       <View style={styles.sectionHeaderLeft}>
@@ -196,8 +245,12 @@ function SectionHeader({ icon, title, color, count }: { icon: keyof typeof Ionic
 }
 
 export default function RecommendationsScreen() {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const router = useRouter();
-  const [refreshing, setRefreshing] = React.useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const toggle = (key: string) => setExpandedKey(prev => (prev === key ? null : key));
 
   // Header animations
   const headerFade = useRef(new Animated.Value(0)).current;
@@ -254,7 +307,7 @@ export default function RecommendationsScreen() {
       >
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton} activeOpacity={0.7}>
           <View style={styles.backButtonInner}>
-            <Ionicons name="chevron-back" size={22} color={Colors.foreground} />
+            <Ionicons name="chevron-back" size={22} color={colors.foreground} />
           </View>
         </TouchableOpacity>
 
@@ -272,7 +325,7 @@ export default function RecommendationsScreen() {
 
         <TouchableOpacity onPress={onRefresh} style={styles.refreshButton} activeOpacity={0.7}>
           <Animated.View style={{ transform: [{ rotate: spin }] }}>
-            <Ionicons name="refresh" size={20} color={Colors.foreground} />
+            <Ionicons name="refresh" size={20} color={colors.foreground} />
           </Animated.View>
         </TouchableOpacity>
       </Animated.View>
@@ -282,37 +335,44 @@ export default function RecommendationsScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
+        {/* Anomaly Banner */}
+        {insights?.anomalyReport && (
+          <View style={styles.anomalyWrap}>
+            <AnomalyBanner report={insights.anomalyReport} />
+          </View>
+        )}
+
         {/* Stats Row */}
         <View style={styles.statsRow}>
           <StatCard
             icon="trending-up"
             value={insights?.predicted_mood?.toFixed(1) || '—'}
             label="Прогноз"
-            color={Colors.primary}
+            color={colors.primary}
             index={0}
           />
           <StatCard
             icon="alert-circle"
             value={alertRecs.length}
             label="Внимание"
-            color={Colors.destructive}
+            color={colors.destructive}
             index={1}
           />
           <StatCard
             icon="warning"
             value={attentionRecs.length}
             label="Улучшить"
-            color={Colors.warning}
+            color={colors.warning}
             index={2}
           />
           <StatCard
             icon="checkmark-circle"
             value={goodRecs.length}
             label="Отлично"
-            color={Colors.success}
+            color={colors.success}
             index={3}
           />
         </View>
@@ -323,7 +383,7 @@ export default function RecommendationsScreen() {
             <View style={styles.phaseContent}>
               <View style={styles.phaseHeader}>
                 <View style={styles.phaseIconWrapper}>
-                  <Ionicons name="flash" size={16} color={Colors.primary} />
+                  <Ionicons name="flash" size={16} color={colors.primary} />
                 </View>
                 <View style={styles.phaseTextWrapper}>
                   <Text style={styles.phaseTitle}>
@@ -350,7 +410,7 @@ export default function RecommendationsScreen() {
           <AnimatedCard index={5} style={styles.errorCard}>
             <View style={styles.errorContent}>
               <View style={styles.errorIconWrapper}>
-                <Ionicons name="cloud-offline" size={24} color={Colors.destructive} />
+                <Ionicons name="cloud-offline" size={24} color={colors.destructive} />
               </View>
               <Text style={styles.errorTitle}>Ошибка загрузки</Text>
               <Text style={styles.errorText}>Не удалось загрузить рекомендации</Text>
@@ -366,7 +426,7 @@ export default function RecommendationsScreen() {
           <AnimatedCard index={5} style={styles.emptyCard}>
             <View style={styles.emptyContent}>
               <View style={styles.emptyIconWrapper}>
-                <Ionicons name="sparkles" size={32} color={Colors.primary} />
+                <Ionicons name="sparkles" size={32} color={colors.primary} />
               </View>
               <Text style={styles.emptyTitle}>Пока нет рекомендаций</Text>
               <Text style={styles.emptyText}>
@@ -382,12 +442,21 @@ export default function RecommendationsScreen() {
             <SectionHeader 
               icon="alert-circle" 
               title="Требует внимания" 
-              color={Colors.destructive} 
+              color={colors.destructive} 
               count={alertRecs.length} 
             />
-            {alertRecs.map((rec, i) => (
-              <RecommendationCard key={`alert-${i}`} rec={rec} index={cardIndex++} />
-            ))}
+            {alertRecs.map((rec, i) => {
+              const key = `alert-${i}`;
+              return (
+                <RecommendationCard
+                  key={key}
+                  rec={rec}
+                  index={cardIndex++}
+                  isExpanded={expandedKey === key}
+                  onToggle={() => toggle(key)}
+                />
+              );
+            })}
           </View>
         )}
 
@@ -397,12 +466,21 @@ export default function RecommendationsScreen() {
             <SectionHeader 
               icon="warning" 
               title="Можно улучшить" 
-              color={Colors.warning} 
+              color={colors.warning} 
               count={attentionRecs.length} 
             />
-            {attentionRecs.map((rec, i) => (
-              <RecommendationCard key={`attention-${i}`} rec={rec} index={cardIndex++} />
-            ))}
+            {attentionRecs.map((rec, i) => {
+              const key = `attention-${i}`;
+              return (
+                <RecommendationCard
+                  key={key}
+                  rec={rec}
+                  index={cardIndex++}
+                  isExpanded={expandedKey === key}
+                  onToggle={() => toggle(key)}
+                />
+              );
+            })}
           </View>
         )}
 
@@ -412,12 +490,21 @@ export default function RecommendationsScreen() {
             <SectionHeader 
               icon="checkmark-circle" 
               title="Хорошие показатели" 
-              color={Colors.success} 
+              color={colors.success} 
               count={goodRecs.length} 
             />
-            {goodRecs.map((rec, i) => (
-              <RecommendationCard key={`good-${i}`} rec={rec} index={cardIndex++} />
-            ))}
+            {goodRecs.map((rec, i) => {
+              const key = `good-${i}`;
+              return (
+                <RecommendationCard
+                  key={key}
+                  rec={rec}
+                  index={cardIndex++}
+                  isExpanded={expandedKey === key}
+                  onToggle={() => toggle(key)}
+                />
+              );
+            })}
           </View>
         )}
 
@@ -427,10 +514,10 @@ export default function RecommendationsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   scrollView: {
     flex: 1,
@@ -449,7 +536,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: Colors.cardHover,
+    backgroundColor: colors.cardHover,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -463,12 +550,12 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     ...Platform.select({
       ios: {
-        shadowColor: Colors.primary,
+        shadowColor: colors.primary,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
         shadowRadius: 8,
@@ -479,25 +566,28 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
     letterSpacing: -0.3,
   },
   headerSubtitle: {
     fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginTop: 2,
   },
   refreshButton: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: Colors.cardHover,
+    backgroundColor: colors.cardHover,
     alignItems: 'center',
     justifyContent: 'center',
   },
   content: {
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,
+  },
+  anomalyWrap: {
+    marginBottom: Spacing.lg,
   },
   statsRow: {
     flexDirection: 'row',
@@ -508,10 +598,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   statCard: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.sm,
     alignItems: 'center',
@@ -536,19 +626,19 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: FontSize.xl,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   statLabel: {
     fontSize: 10,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
   phaseCard: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     marginBottom: Spacing.lg,
     ...Platform.select({
       ios: {
@@ -573,7 +663,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 10,
-    backgroundColor: Colors.primaryMuted,
+    backgroundColor: colors.primaryMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -583,21 +673,21 @@ const styles = StyleSheet.create({
   phaseTitle: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   phaseSubtitle: {
     fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginTop: 2,
   },
   progressWrapper: {
     paddingHorizontal: 4,
   },
   errorCard: {
-    backgroundColor: Colors.destructiveMuted,
+    backgroundColor: colors.destructiveMuted,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.destructive + '30',
+    borderColor: colors.destructive + '30',
     marginBottom: Spacing.lg,
   },
   errorContent: {
@@ -609,7 +699,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: Colors.destructive + '15',
+    backgroundColor: colors.destructive + '15',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: Spacing.sm,
@@ -617,15 +707,15 @@ const styles = StyleSheet.create({
   errorTitle: {
     fontSize: FontSize.base,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   errorText: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     textAlign: 'center',
   },
   retryButton: {
-    backgroundColor: Colors.destructive,
+    backgroundColor: colors.destructive,
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.lg,
@@ -637,10 +727,10 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   emptyCard: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     marginBottom: Spacing.lg,
   },
   emptyContent: {
@@ -652,7 +742,7 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: Colors.primaryMuted,
+    backgroundColor: colors.primaryMuted,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: Spacing.sm,
@@ -660,11 +750,11 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   emptyText: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     textAlign: 'center',
     lineHeight: 20,
     maxWidth: 280,
@@ -694,7 +784,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: FontSize.md,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   countBadge: {
     paddingHorizontal: 10,
@@ -706,10 +796,10 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.bold,
   },
   recCard: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     overflow: 'hidden',
     ...Platform.select({
       ios: {
@@ -772,12 +862,12 @@ const styles = StyleSheet.create({
   recTitle: {
     fontSize: FontSize.base,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
     lineHeight: 22,
   },
   recDescription: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     lineHeight: 20,
   },
   recFooter: {
@@ -786,11 +876,11 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingTop: Spacing.xs,
     borderTopWidth: 1,
-    borderTopColor: Colors.border,
+    borderTopColor: colors.border,
   },
   recAction: {
     fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     fontWeight: FontWeight.medium,
   },
 });

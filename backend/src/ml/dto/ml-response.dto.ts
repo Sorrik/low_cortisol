@@ -61,6 +61,7 @@ export class MlTrainResponseDto {
   samples_used!:   number
   features_count!: number
   cv_mae!:         number | null
+  cv_r2!:          number | null
   oob_r2!:         number | null
   model_version!:  string
   trained_at!:     string

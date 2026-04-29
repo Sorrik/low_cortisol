@@ -17,7 +17,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles';
+import { useTheme } from '@/context/ThemeContext';
+
 import { getNutritionRecords, addNutritionRecord, updateNutritionRecord, deleteNutritionRecord } from '@/lib/health-api';
 import type { NutritionRecord } from '@/types/health';
 
@@ -39,7 +42,10 @@ function toLocalDateStr(date: Date): string {
 }
 
 // Progress Ring Component
-function ProgressRing({ progress, size = 120, strokeWidth = 10, color = Colors.nutrition }: { progress: number; size?: number; strokeWidth?: number; color?: string }) {
+function ProgressRing({ progress, size = 120, strokeWidth = 10, color }: { progress: number; size?: number; strokeWidth?: number; color?: string }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
+  const ringColor = color ?? colors.nutrition;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const clampedProgress = Math.min(Math.max(progress, 0), 100);
@@ -53,7 +59,7 @@ function ProgressRing({ progress, size = 120, strokeWidth = 10, color = Colors.n
             width: size - strokeWidth * 2,
             height: size - strokeWidth * 2,
             borderRadius: (size - strokeWidth * 2) / 2,
-            backgroundColor: Colors.secondary,
+            backgroundColor: colors.secondary,
           }}
         />
       </View>
@@ -63,11 +69,11 @@ function ProgressRing({ progress, size = 120, strokeWidth = 10, color = Colors.n
           height: size,
           borderRadius: size / 2,
           borderWidth: strokeWidth,
-          borderColor: color,
-          borderTopColor: clampedProgress < 25 ? Colors.secondary : color,
-          borderRightColor: clampedProgress < 50 ? Colors.secondary : color,
-          borderBottomColor: clampedProgress < 75 ? Colors.secondary : color,
-          borderLeftColor: clampedProgress < 100 ? Colors.secondary : color,
+          borderColor: ringColor,
+          borderTopColor: clampedProgress < 25 ? colors.secondary : ringColor,
+          borderRightColor: clampedProgress < 50 ? colors.secondary : ringColor,
+          borderBottomColor: clampedProgress < 75 ? colors.secondary : ringColor,
+          borderLeftColor: clampedProgress < 100 ? colors.secondary : ringColor,
           transform: [{ rotate: '-90deg' }],
         }}
       />
@@ -76,17 +82,22 @@ function ProgressRing({ progress, size = 120, strokeWidth = 10, color = Colors.n
 }
 
 // Progress Bar
-function ProgressBar({ progress, color = Colors.primary, height = 6 }: { progress: number; color?: string; height?: number }) {
+function ProgressBar({ progress, color, height = 6 }: { progress: number; color?: string; height?: number }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
+  const fillColor = color ?? colors.primary;
   const clampedProgress = Math.min(Math.max(progress, 0), 100);
   return (
     <View style={[styles.progressBar, { height }]}>
-      <View style={[styles.progressFill, { width: `${clampedProgress}%`, backgroundColor: color }]} />
+      <View style={[styles.progressFill, { width: `${clampedProgress}%`, backgroundColor: fillColor }]} />
     </View>
   );
 }
 
 // Animated Card
 function AnimatedCard({ children, index, style }: { children: React.ReactNode; index: number; style?: any }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(20)).current;
 
@@ -116,6 +127,8 @@ function MealItem({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const [showActions, setShowActions] = useState(false);
   const mealConfig = MEAL_CONFIG[record.mealType ?? 'snack'] || MEAL_CONFIG.snack;
@@ -176,12 +189,12 @@ function MealItem({
           {showActions && (
             <View style={styles.actionsRow}>
               <TouchableOpacity style={styles.actionButton} onPress={onEdit} activeOpacity={0.7}>
-                <Ionicons name="pencil" size={16} color={Colors.primary} />
-                <Text style={[styles.actionText, { color: Colors.primary }]}>Изменить</Text>
+                <Ionicons name="pencil" size={16} color={colors.primary} />
+                <Text style={[styles.actionText, { color: colors.primary }]}>Изменить</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionButton} onPress={onDelete} activeOpacity={0.7}>
-                <Ionicons name="trash" size={16} color={Colors.destructive} />
-                <Text style={[styles.actionText, { color: Colors.destructive }]}>Удалить</Text>
+                <Ionicons name="trash" size={16} color={colors.destructive} />
+                <Text style={[styles.actionText, { color: colors.destructive }]}>Удалить</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -193,6 +206,8 @@ function MealItem({
 
 // Meal Type Selector
 function MealTypeSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   return (
     <View style={styles.mealTypeGrid}>
       {Object.entries(MEAL_CONFIG).map(([key, config]) => (
@@ -202,7 +217,7 @@ function MealTypeSelector({ value, onChange }: { value: string; onChange: (v: st
           onPress={() => onChange(key)}
           activeOpacity={0.7}
         >
-          <Ionicons name={config.icon} size={20} color={value === key ? config.color : Colors.mutedForeground} />
+          <Ionicons name={config.icon} size={20} color={value === key ? config.color : colors.mutedForeground} />
           <Text style={[styles.mealTypeText, value === key && { color: config.color }]}>{config.label}</Text>
         </TouchableOpacity>
       ))}
@@ -224,6 +239,8 @@ function NutritionModal({
   editRecord: NutritionRecord | null;
   isLoading: boolean;
 }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const [date, setDate] = useState(toLocalDateStr(new Date()));
   const [mealType, setMealType] = useState('lunch');
   const [kcal, setKcal] = useState('');
@@ -292,13 +309,13 @@ function NutritionModal({
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Дата</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="calendar" size={18} color={Colors.mutedForeground} />
+                  <Ionicons name="calendar" size={18} color={colors.mutedForeground} />
                   <TextInput
                     style={styles.input}
                     value={date}
                     onChangeText={setDate}
                     placeholder="YYYY-MM-DD"
-                    placeholderTextColor={Colors.mutedForeground}
+                    placeholderTextColor={colors.mutedForeground}
                   />
                 </View>
               </View>
@@ -313,13 +330,13 @@ function NutritionModal({
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Описание (опционально)</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="document-text" size={18} color={Colors.mutedForeground} />
+                  <Ionicons name="document-text" size={18} color={colors.mutedForeground} />
                   <TextInput
                     style={styles.input}
                     value={description}
                     onChangeText={setDescription}
                     placeholder="Овсянка с ягодами..."
-                    placeholderTextColor={Colors.mutedForeground}
+                    placeholderTextColor={colors.mutedForeground}
                   />
                 </View>
               </View>
@@ -328,14 +345,14 @@ function NutritionModal({
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Калории</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="flame" size={18} color={Colors.nutrition} />
+                  <Ionicons name="flame" size={18} color={colors.nutrition} />
                   <TextInput
                     style={styles.input}
                     value={kcal}
                     onChangeText={setKcal}
                     placeholder="0"
                     keyboardType="numeric"
-                    placeholderTextColor={Colors.mutedForeground}
+                    placeholderTextColor={colors.mutedForeground}
                   />
                   <Text style={styles.inputSuffix}>ккал</Text>
                 </View>
@@ -352,7 +369,7 @@ function NutritionModal({
                       onChangeText={setProteins}
                       placeholder="0"
                       keyboardType="numeric"
-                      placeholderTextColor={Colors.mutedForeground}
+                      placeholderTextColor={colors.mutedForeground}
                     />
                     <Text style={styles.inputSuffix}>г</Text>
                   </View>
@@ -366,7 +383,7 @@ function NutritionModal({
                       onChangeText={setFats}
                       placeholder="0"
                       keyboardType="numeric"
-                      placeholderTextColor={Colors.mutedForeground}
+                      placeholderTextColor={colors.mutedForeground}
                     />
                     <Text style={styles.inputSuffix}>г</Text>
                   </View>
@@ -380,7 +397,7 @@ function NutritionModal({
                       onChangeText={setCarbs}
                       placeholder="0"
                       keyboardType="numeric"
-                      placeholderTextColor={Colors.mutedForeground}
+                      placeholderTextColor={colors.mutedForeground}
                     />
                     <Text style={styles.inputSuffix}>г</Text>
                   </View>
@@ -417,6 +434,8 @@ function NutritionModal({
 }
 
 export default function NutritionScreen() {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -508,6 +527,42 @@ export default function NutritionScreen() {
   const displayedRecords = isExpanded ? records : records.slice(0, COLLAPSED_ITEMS);
   const hasMoreRecords = records.length > COLLAPSED_ITEMS;
 
+  const weekStats = useMemo(() => {
+    const DAYS = 7;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const days: { label: string; date: string; kcal: number }[] = [];
+    for (let i = DAYS - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const dateStr = toLocalDateStr(d);
+      const dayRecs = records.filter((r) => r.date.slice(0, 10) === dateStr);
+      const kcal = dayRecs.reduce((s, r) => s + r.kcal, 0);
+      days.push({
+        label: d.toLocaleDateString('ru-RU', { weekday: 'short' }).slice(0, 2).toUpperCase(),
+        date: dateStr,
+        kcal,
+      });
+    }
+
+    const filledDays = days.filter((d) => d.kcal > 0).length;
+    const avgKcal = filledDays > 0
+      ? Math.round(days.reduce((s, d) => s + d.kcal, 0) / filledDays)
+      : 0;
+    const maxKcal = Math.max(...days.map((d) => d.kcal), 1);
+    const weekStreak = (() => {
+      let n = 0;
+      for (let i = days.length - 1; i >= 0; i--) {
+        if (days[i].kcal > 0) n++;
+        else break;
+      }
+      return n;
+    })();
+
+    return { days, avgKcal, maxKcal, filledDays, weekStreak };
+  }, [records]);
+
   let cardIdx = 0;
 
   return (
@@ -515,13 +570,13 @@ export default function NutritionScreen() {
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
         {/* Header */}
         <Animated.View style={[styles.header, { opacity: headerFade, transform: [{ translateY: headerTranslate }] }]}>
           <View style={styles.headerLeft}>
             <View style={styles.iconWrapper}>
-              <Ionicons name="restaurant" size={26} color={Colors.nutrition} />
+              <Ionicons name="restaurant" size={26} color={colors.nutrition} />
             </View>
             <View>
               <Text style={styles.title}>Питание</Text>
@@ -550,7 +605,7 @@ export default function NutritionScreen() {
                 <Text style={styles.calorieUnit}>ккал</Text>
               </View>
               <View style={styles.calorieGoal}>
-                <ProgressBar progress={(todayData.kcal / goals.kcal) * 100} color={Colors.nutrition} height={8} />
+                <ProgressBar progress={(todayData.kcal / goals.kcal) * 100} color={colors.nutrition} height={8} />
                 <Text style={styles.calorieGoalText}>из {goals.kcal} ккал</Text>
               </View>
             </View>
@@ -578,6 +633,68 @@ export default function NutritionScreen() {
           ))}
         </View>
 
+        {/* Weekly Stats */}
+        <AnimatedCard index={cardIdx++} style={styles.weekCard}>
+          <View style={styles.weekHeader}>
+            <View style={styles.weekHeaderLeft}>
+              <View style={styles.weekIconBg}>
+                <Ionicons name="stats-chart" size={16} color={colors.nutrition} />
+              </View>
+              <Text style={styles.weekTitle}>Неделя</Text>
+            </View>
+            <Text style={styles.weekDaysFilled}>
+              {weekStats.filledDays}/7 дней
+            </Text>
+          </View>
+
+          <View style={styles.weekChart}>
+            {weekStats.days.map((d, i) => {
+              const barHeight = weekStats.maxKcal > 0
+                ? Math.max(4, (d.kcal / weekStats.maxKcal) * 80)
+                : 4;
+              const isOverGoal = d.kcal > goals.kcal;
+              const barColor = d.kcal === 0
+                ? colors.secondary
+                : isOverGoal
+                  ? '#ef4444'
+                  : colors.nutrition;
+              return (
+                <View key={d.date} style={styles.weekBarWrap}>
+                  <View style={styles.weekBarTrack}>
+                    <View
+                      style={[
+                        styles.weekBarFill,
+                        { height: barHeight, backgroundColor: barColor },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.weekBarLabel}>{d.label}</Text>
+                  <Text style={styles.weekBarValue}>
+                    {d.kcal > 0 ? Math.round(d.kcal / 100) / 10 : '—'}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+
+          <View style={styles.weekStatsRow}>
+            <View style={styles.weekStatItem}>
+              <Text style={styles.weekStatValue}>{weekStats.avgKcal}</Text>
+              <Text style={styles.weekStatLabel}>Среднее, ккал</Text>
+            </View>
+            <View style={styles.weekStatDivider} />
+            <View style={styles.weekStatItem}>
+              <Text style={styles.weekStatValue}>{goals.kcal}</Text>
+              <Text style={styles.weekStatLabel}>Цель, ккал</Text>
+            </View>
+            <View style={styles.weekStatDivider} />
+            <View style={styles.weekStatItem}>
+              <Text style={styles.weekStatValue}>{weekStats.weekStreak}</Text>
+              <Text style={styles.weekStatLabel}>Серия, дн.</Text>
+            </View>
+          </View>
+        </AnimatedCard>
+
         {/* Today's Meals */}
         {todayData.records.length > 0 && (
           <View style={styles.todayMealsSection}>
@@ -603,14 +720,14 @@ export default function NutritionScreen() {
             {hasMoreRecords && (
               <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
                 <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
-                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.primary} />
+                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
               </TouchableOpacity>
             )}
           </View>
 
           {records.length === 0 ? (
             <View style={styles.emptyHistory}>
-              <Ionicons name="restaurant-outline" size={40} color={Colors.mutedForeground} />
+              <Ionicons name="restaurant-outline" size={40} color={colors.mutedForeground} />
               <Text style={styles.emptyTitle}>Нет записей</Text>
               <Text style={styles.emptyHint}>Добавьте первый прием пищи</Text>
             </View>
@@ -659,10 +776,10 @@ export default function NutritionScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   content: {
     paddingHorizontal: Spacing.lg,
@@ -683,37 +800,37 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 16,
-    backgroundColor: Colors.nutritionMuted,
+    backgroundColor: colors.nutritionMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
     fontSize: FontSize.xxl,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   subtitle: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginTop: 2,
   },
   addHeaderButton: {
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: Colors.nutrition,
+    backgroundColor: colors.nutrition,
     alignItems: 'center',
     justifyContent: 'center',
     ...Platform.select({
-      ios: { shadowColor: Colors.nutrition, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
+      ios: { shadowColor: colors.nutrition, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
       android: { elevation: 6 },
     }),
   },
   calorieCard: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     padding: Spacing.lg,
     marginBottom: Spacing.md,
     ...Platform.select({
@@ -731,7 +848,7 @@ const styles = StyleSheet.create({
   },
   calorieLabel: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginBottom: 4,
   },
   calorieValueRow: {
@@ -742,11 +859,11 @@ const styles = StyleSheet.create({
   calorieValue: {
     fontSize: 42,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   calorieUnit: {
     fontSize: FontSize.lg,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   calorieGoal: {
     marginTop: Spacing.md,
@@ -754,7 +871,7 @@ const styles = StyleSheet.create({
   },
   calorieGoalText: {
     fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   calorieRight: {
     marginLeft: Spacing.lg,
@@ -763,24 +880,24 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: Colors.nutritionMuted,
+    backgroundColor: colors.nutritionMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
   mealsCountValue: {
     fontSize: FontSize.xxl,
     fontWeight: FontWeight.bold,
-    color: Colors.nutrition,
+    color: colors.nutrition,
   },
   mealsCountLabel: {
     fontSize: 9,
-    color: Colors.nutrition,
+    color: colors.nutrition,
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
   progressBar: {
     width: '100%',
-    backgroundColor: Colors.secondary,
+    backgroundColor: colors.secondary,
     borderRadius: BorderRadius.full,
     overflow: 'hidden',
   },
@@ -795,10 +912,10 @@ const styles = StyleSheet.create({
   },
   macroCard: {
     flex: 1,
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     alignItems: 'center',
     padding: Spacing.md,
     gap: 4,
@@ -814,17 +931,116 @@ const styles = StyleSheet.create({
   macroValue: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   macroLabel: {
     fontSize: 10,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginBottom: 4,
   },
   macroGoal: {
     fontSize: 9,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginTop: 4,
+  },
+  weekCard: {
+    backgroundColor: colors.card,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: Spacing.lg,
+    marginBottom: Spacing.lg,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8 },
+      android: { elevation: 2 },
+    }),
+  },
+  weekHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.lg,
+  },
+  weekHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  weekIconBg: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: colors.nutritionMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weekTitle: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semibold,
+    color: colors.foreground,
+  },
+  weekDaysFilled: {
+    fontSize: FontSize.xs,
+    color: colors.mutedForeground,
+    fontWeight: FontWeight.medium,
+  },
+  weekChart: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    height: 120,
+    marginBottom: Spacing.lg,
+  },
+  weekBarWrap: {
+    alignItems: 'center',
+    flex: 1,
+    gap: 4,
+  },
+  weekBarTrack: {
+    width: 22,
+    height: 80,
+    justifyContent: 'flex-end',
+  },
+  weekBarFill: {
+    width: '100%',
+    borderRadius: 6,
+  },
+  weekBarLabel: {
+    fontSize: 10,
+    color: colors.mutedForeground,
+    fontWeight: FontWeight.medium,
+  },
+  weekBarValue: {
+    fontSize: 10,
+    color: colors.foreground,
+  },
+  weekStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: Spacing.md,
+  },
+  weekStatItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
+  },
+  weekStatDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: colors.border,
+  },
+  weekStatValue: {
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.bold,
+    color: colors.foreground,
+  },
+  weekStatLabel: {
+    fontSize: 10,
+    color: colors.mutedForeground,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
   },
   todayMealsSection: {
     marginBottom: Spacing.lg,
@@ -832,7 +1048,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
     marginBottom: Spacing.md,
   },
   todayMealsList: {
@@ -854,14 +1070,14 @@ const styles = StyleSheet.create({
   },
   expandText: {
     fontSize: FontSize.sm,
-    color: Colors.primary,
+    color: colors.primary,
     fontWeight: FontWeight.medium,
   },
   emptyHistory: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     alignItems: 'center',
     paddingVertical: Spacing.xxl,
     gap: Spacing.sm,
@@ -869,20 +1085,20 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: FontSize.base,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   emptyHint: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   historyList: {
     gap: Spacing.sm,
   },
   mealCard: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     overflow: 'hidden',
   },
   mealMain: {
@@ -914,11 +1130,11 @@ const styles = StyleSheet.create({
   },
   mealDate: {
     fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   mealDescription: {
     fontSize: FontSize.sm,
-    color: Colors.foreground,
+    color: colors.foreground,
     marginTop: 2,
   },
   mealStats: {
@@ -927,11 +1143,11 @@ const styles = StyleSheet.create({
   mealKcal: {
     fontSize: FontSize.xl,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   mealKcalUnit: {
     fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   macrosPreview: {
     flexDirection: 'row',
@@ -952,12 +1168,12 @@ const styles = StyleSheet.create({
   },
   macroMiniText: {
     fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   actionsRow: {
     flexDirection: 'row',
     borderTopWidth: 1,
-    borderTopColor: Colors.border,
+    borderTopColor: colors.border,
   },
   actionButton: {
     flex: 1,
@@ -976,11 +1192,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.sm,
-    backgroundColor: Colors.nutrition,
+    backgroundColor: colors.nutrition,
     paddingVertical: 16,
     borderRadius: BorderRadius.xl,
     ...Platform.select({
-      ios: { shadowColor: Colors.nutrition, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
+      ios: { shadowColor: colors.nutrition, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
       android: { elevation: 6 },
     }),
   },
@@ -995,7 +1211,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: Spacing.lg,
@@ -1006,14 +1222,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: Colors.border,
+    backgroundColor: colors.border,
     alignSelf: 'center',
     marginBottom: Spacing.lg,
   },
   modalTitle: {
     fontSize: FontSize.xl,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
     marginBottom: Spacing.lg,
     textAlign: 'center',
   },
@@ -1023,14 +1239,14 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.medium,
-    color: Colors.foreground,
+    color: colors.foreground,
     marginBottom: 8,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    backgroundColor: Colors.secondary,
+    backgroundColor: colors.secondary,
     borderRadius: BorderRadius.lg,
     paddingHorizontal: Spacing.md,
     paddingVertical: 12,
@@ -1041,11 +1257,11 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: FontSize.base,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   inputSuffix: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   mealTypeGrid: {
     flexDirection: 'row',
@@ -1059,14 +1275,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 12,
-    backgroundColor: Colors.secondary,
+    backgroundColor: colors.secondary,
     borderWidth: 1,
     borderColor: 'transparent',
   },
   mealTypeText: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.medium,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   macrosInputRow: {
     flexDirection: 'row',
@@ -1081,13 +1297,13 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 14,
     borderRadius: BorderRadius.lg,
-    backgroundColor: Colors.secondary,
+    backgroundColor: colors.secondary,
     alignItems: 'center',
   },
   cancelButtonText: {
     fontSize: FontSize.base,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   saveButton: {
     flex: 2,
@@ -1097,7 +1313,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 14,
     borderRadius: BorderRadius.lg,
-    backgroundColor: Colors.nutrition,
+    backgroundColor: colors.nutrition,
   },
   saveButtonDisabled: {
     opacity: 0.6,

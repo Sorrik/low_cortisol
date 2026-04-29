@@ -8,6 +8,7 @@ import { NutritionService }    from './nutrition.service'
 import { FatSecretService }    from './fatsecret.service'
 import { Food }                from './food.entity'
 import { FoodSearchService }   from './food-search.service'
+import { FoodVisionService }   from './food-vision.service'
 import { NutritionData }       from './nutrition.entity'
 import { InsightsModule }      from '../insights/insights.module'
 
@@ -17,6 +18,6 @@ import { InsightsModule }      from '../insights/insights.module'
     InsightsModule,
   ],
   controllers: [NutritionController],
-  providers:   [NutritionService, FatSecretService, FoodSearchService],
+  providers:   [NutritionService, FatSecretService, FoodSearchService, FoodVisionService],
 })
 export class NutritionModule {}

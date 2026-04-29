@@ -21,34 +21,45 @@ const storage = {
 }
 
 export interface AuthState {
-  token:   string | null
-  userId:  string | null
-  isReady: boolean
-  setAuth: (token: string, userId: string) => Promise<void>
-  logout:  () => Promise<void>
-  hydrate: () => Promise<void>
+  token:        string | null
+  refreshToken: string | null
+  userId:       string | null
+  isReady:      boolean
+  setAuth:      (token: string, refreshToken: string, userId: string) => Promise<void>
+  setAccess:    (token: string) => void
+  logout:       () => Promise<void>
+  hydrate:      () => Promise<void>
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  token:   null,
-  userId:  null,
-  isReady: false,
+  token:        null,
+  refreshToken: null,
+  userId:       null,
+  isReady:      false,
 
-  setAuth: async (token: string, userId: string) => {
-    await storage.set('token',  token)
-    await storage.set('userId', userId)
-    set({ token, userId })
+  setAuth: async (token: string, refreshToken: string, userId: string) => {
+    await storage.set('token',         token)
+    await storage.set('refresh_token', refreshToken)
+    await storage.set('userId',        userId)
+    set({ token, refreshToken, userId })
+  },
+
+  setAccess: (token: string) => {
+    void storage.set('token', token)
+    set({ token })
   },
 
   logout: async () => {
     await storage.delete('token')
+    await storage.delete('refresh_token')
     await storage.delete('userId')
-    set({ token: null, userId: null })
+    set({ token: null, refreshToken: null, userId: null })
   },
 
   hydrate: async () => {
-    const token  = await storage.get('token')
-    const userId = await storage.get('userId')
-    set({ token, userId, isReady: true })
+    const token        = await storage.get('token')
+    const refreshToken = await storage.get('refresh_token')
+    const userId       = await storage.get('userId')
+    set({ token, refreshToken, userId, isReady: true })
   },
 }))

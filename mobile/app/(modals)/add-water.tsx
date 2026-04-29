@@ -7,7 +7,7 @@ import {
 import { useRouter } from 'expo-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Minus, Plus, Droplets } from 'lucide-react-native'
-import { createWater } from '@/lib/health-api'  // ← исправлено
+import { createWater } from '@/lib/health-api'
 
 function todayStr(): string {
   const d = new Date()
@@ -135,7 +135,8 @@ const styles = StyleSheet.create({
   header:              { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#1f1f1f' },
   title:               { fontSize: 20, fontWeight: '700', color: '#f5f5f5' },
   content:             { flex: 1, paddingHorizontal: 20, paddingTop: 32, alignItems: 'center' },
-  iconWrapper:         { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(56,189,248,0.1)', alignItems: 'center', justifyContent: 'center', marginBottom: 32 },
+  iconWrapper:         { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(56,189,248,0.1)', alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
+  voiceWrap:           { width: '100%', marginBottom: 24 },
   stepperContainer:    { flexDirection: 'row', alignItems: 'center', gap: 24, marginBottom: 12 },
   stepperBtn:          { width: 56, height: 56, borderRadius: 28, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#27272a', alignItems: 'center', justifyContent: 'center' },
   valueContainer:      { alignItems: 'center', minWidth: 100 },

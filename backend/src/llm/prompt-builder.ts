@@ -5,12 +5,12 @@ import { RelevantArticle } from '../rag/rag.service'
 // ── Типы ─────────────────────────────────────────────────────
 
 interface HealthData {
-  sleep:     { date: string; duration_hours: number; quality: number }[]
+  sleep:     { date: string; duration_hours: number; quality: number; bed_time?: string | null; wake_time?: string | null }[]
   mood:      { date: string; mood_score: number }[]
   stress:    { date: string; level: number }[]
-  activity:  { date: string; duration_minutes: number; intensity: string }[]
+  activity:  { date: string; duration_minutes: number; intensity: string; time?: string | null }[]
   water:     { date: string; amount_ml: number }[]
-  nutrition: { date: string; calories: number; protein_grams: number; carbs_grams: number; fat_grams: number }[]
+  nutrition: { date: string; calories: number; protein_grams: number; carbs_grams: number; fat_grams: number; time?: string | null }[]
   _user_profile?: {
     primary_goal:        string
     sleep_goal_hours:    number
@@ -58,6 +58,21 @@ export interface HealthQueryContext {
 
 // ── Helpers ───────────────────────────────────────────────────
 
+// Защита от prompt injection: убираем контрольные символы,
+// перевод строк и ограничиваем длину. Применяется ко всем
+// строковым полям, которые могут прийти от пользователя и
+// попасть в промпт без словарного маппинга.
+function sanitizeForPrompt(value: unknown, maxLen = 80): string {
+  if (value == null) return ''
+  const str = String(value)
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
+    .replace(/[`{}]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return str.length > maxLen ? str.slice(0, maxLen) + '…' : str
+}
+
 function avg(arr: number[]): number {
   if (!arr.length) return 0
   return arr.reduce((a, b) => a + b, 0) / arr.length
@@ -104,6 +119,88 @@ export function extractHealthContext(healthData: HealthData): HealthQueryContext
   }
 }
 
+// ── Timing helpers ────────────────────────────────────────────
+
+function parseTimeToHour(t: string | null | undefined): number | null {
+  if (!t) return null
+  const [h, m] = t.split(':').map(Number)
+  if (isNaN(h)) return null
+  return h + (m || 0) / 60
+}
+
+function hourToHHMM(h: number): string {
+  const hh = Math.floor(h)
+  const mm  = Math.round((h - hh) * 60)
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+}
+
+// Возвращает строку с контекстом времени приёмов пищи за W дней
+function buildMealTimingLines(nutrition: HealthData['nutrition'], W: number): string[] {
+  const recent = lastNDays(nutrition, W)
+  if (!recent.length) return []
+
+  const lines: string[] = []
+
+  // Средний час ужина (meal тип dinner или записи после 17:00)
+  const timesWithMeal = recent
+    .map(r => ({ hour: parseTimeToHour(r.time), cals: r.calories }))
+    .filter(x => x.hour !== null) as { hour: number; cals: number }[]
+
+  if (timesWithMeal.length >= 2) {
+    const avgMealHour = timesWithMeal.reduce((s, x) => s + x.hour, 0) / timesWithMeal.length
+    lines.push(`  Среднее время приёма пищи: ${hourToHHMM(avgMealHour)}`)
+  }
+
+  // Поздние приёмы после 20:00
+  const lateMeals = recent.filter(r => {
+    const h = parseTimeToHour(r.time)
+    return h !== null && (h >= 20 || h < 3)
+  })
+  if (lateMeals.length > 0) {
+    const avgLateCal = Math.round(lateMeals.reduce((s, r) => s + r.calories, 0) / lateMeals.length)
+    lines.push(`  Приёмы пищи после 20:00: ${lateMeals.length} раз за ${W} дней (среднее ${avgLateCal} ккал)`)
+  }
+
+  // Очень поздние после 21:00 (кортизол-риск)
+  const veryLateMeals = recent.filter(r => {
+    const h = parseTimeToHour(r.time)
+    return h !== null && (h >= 21 || h < 3)
+  })
+  if (veryLateMeals.length > 0) {
+    const avgVeryLateCal   = Math.round(veryLateMeals.reduce((s, r) => s + r.calories, 0) / veryLateMeals.length)
+    const avgVeryLateFat   = Math.round(veryLateMeals.reduce((s, r) => s + (r.fat_grams || 0), 0) / veryLateMeals.length)
+    const fatWarning = avgVeryLateFat > 15 ? ` — жирная еда (${avgVeryLateFat}г жира)` : ''
+    lines.push(`  ⚠️  После 21:00: ${veryLateMeals.length} раз (${avgVeryLateCal} ккал${fatWarning}) — повышает кортизол ночью, нарушает сон`)
+  }
+
+  return lines
+}
+
+// Возвращает строки с временем отхода ко сну и вариабельностью
+function buildSleepTimingLines(sleep: HealthData['sleep'], W: number): string[] {
+  const recent = lastNDays(sleep, W)
+  const lines: string[] = []
+
+  const bedHours  = recent.map(r => parseTimeToHour(r.bed_time)).filter((h): h is number => h !== null)
+  const wakeHours = recent.map(r => parseTimeToHour(r.wake_time)).filter((h): h is number => h !== null)
+
+  if (bedHours.length >= 2) {
+    const avgBed = bedHours.reduce((s, h) => s + h, 0) / bedHours.length
+    const stdBed = Math.sqrt(bedHours.reduce((s, h) => s + (h - avgBed) ** 2, 0) / bedHours.length)
+    const stdMin = Math.round(stdBed * 60)
+    lines.push(`  Среднее время отхода ко сну: ${hourToHHMM(avgBed)} (разброс ±${stdMin} мин)`)
+    if (stdMin > 60) {
+      lines.push(`  ⚠️  Нерегулярный режим сна — нарушает циркадный ритм и кортизол`)
+    }
+  }
+  if (wakeHours.length >= 2) {
+    const avgWake = wakeHours.reduce((s, h) => s + h, 0) / wakeHours.length
+    lines.push(`  Среднее время подъёма: ${hourToHHMM(avgWake)}`)
+  }
+
+  return lines
+}
+
 // ── Словари ───────────────────────────────────────────────────
 
 const GOAL_LABELS: Record<string, string> = {
@@ -145,19 +242,29 @@ const TREND_RU: Record<string, string> = {
 // ── Секция профиля ────────────────────────────────────────────
 
 function buildProfileSection(p: NonNullable<HealthData['_user_profile']>): string {
+  const goal       = GOAL_LABELS[p.primary_goal]       ?? sanitizeForPrompt(p.primary_goal)
+  const chrono     = CHRONOTYPE_LABELS[p.chronotype]   ?? sanitizeForPrompt(p.chronotype)
+  const activity   = ACTIVITY_LABELS[p.activity_level] ?? sanitizeForPrompt(p.activity_level)
+  const sportGoal  = p.sport_goal
+    ? (SPORT_GOAL_LABELS[p.sport_goal] ?? sanitizeForPrompt(p.sport_goal))
+    : null
+  const baseStress = Number.isFinite(p.baseline_stress) ? p.baseline_stress : 5
+  const sleepGoal  = Number.isFinite(p.sleep_goal_hours) ? p.sleep_goal_hours : 8
+  const weeklyMin  = Number.isFinite(p.weekly_training_min) ? p.weekly_training_min : 0
+
   const lines = [
     `ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ:`,
-    `  Главная цель: ${GOAL_LABELS[p.primary_goal] ?? p.primary_goal}`,
-    `  Личная норма сна: ${p.sleep_goal_hours} ч`,
-    `  Хронотип: ${CHRONOTYPE_LABELS[p.chronotype] ?? p.chronotype}`,
-    `  Активность: ${ACTIVITY_LABELS[p.activity_level] ?? p.activity_level}`,
-    `  Базовый стресс (при регистрации): ${p.baseline_stress}/10`,
+    `  Главная цель: ${goal}`,
+    `  Личная норма сна: ${sleepGoal} ч`,
+    `  Хронотип: ${chrono}`,
+    `  Активность: ${activity}`,
+    `  Базовый стресс (при регистрации): ${baseStress}/10`,
   ]
-  if (p.weekly_training_min > 0) {
-    lines.push(`  Недельная нагрузка: ${p.weekly_training_min} мин/нед`)
+  if (weeklyMin > 0) {
+    lines.push(`  Недельная нагрузка: ${weeklyMin} мин/нед`)
   }
-  if (p.sport_goal) {
-    lines.push(`  Цель в спорте: ${SPORT_GOAL_LABELS[p.sport_goal] ?? p.sport_goal}`)
+  if (sportGoal) {
+    lines.push(`  Цель в спорте: ${sportGoal}`)
   }
   return lines.join('\n')
 }
@@ -194,7 +301,7 @@ function buildShapSection(ml: MlPrediction): string {
   if (negative.length) {
     lines.push(`  Снижают настроение:`)
     negative.forEach(f => {
-      lines.push(`    - фактор: "${f.factor}"`)
+      lines.push(`    - фактор: "${sanitizeForPrompt(f.factor, 60)}"`)
       lines.push(`      значение: ${Math.round(f.feature_value * 10) / 10}`)
       lines.push(`      SHAP-вклад: ${f.raw_shap.toFixed(3)} (влияние: -${f.impact.toFixed(2)})`)
     })
@@ -203,7 +310,7 @@ function buildShapSection(ml: MlPrediction): string {
   if (positive.length) {
     lines.push(`  Поддерживают настроение:`)
     positive.forEach(f => {
-      lines.push(`    - фактор: "${f.factor}"`)
+      lines.push(`    - фактор: "${sanitizeForPrompt(f.factor, 60)}"`)
       lines.push(`      значение: ${Math.round(f.feature_value * 10) / 10}`)
       lines.push(`      SHAP-вклад: +${f.raw_shap.toFixed(3)} (влияние: +${f.impact.toFixed(2)})`)
     })
@@ -279,7 +386,6 @@ export function buildRecommendationPrompt(
           `2. ПРИВЯЗКА К SHAP.`,
           `   Каждая рекомендация ОБЯЗАНА ссылаться на конкретный фактор из SHAP_FACTORS.`,
           `   Запрещено придумывать проблемы которых нет в SHAP_FACTORS.`,
-          `   Самый приоритетный негативный SHAP-фактор → рекомендация с severity "alert".`,
         ].join('\n')
       : `2. Опирайся строго на числа из раздела ДАННЫЕ. Не придумывай проблем которых нет.`,
     ``,
@@ -290,11 +396,17 @@ export function buildRecommendationPrompt(
     `4. НОРМА СНА для этого пользователя — ${sleepNorm} ч, не стандартные 8 ч.`,
     up ? `   Базовый стресс: ${up.baseline_stress}/10. Всё что выше — отклонение.` : '',
     ``,
-    `5. СОРТИРОВКА: alert → attention → good.`,
+    `5. SEVERITY — СТРОГИЕ КРИТЕРИИ (не нарушать):`,
+    `   alert     = метрика СЕЙЧАС в опасном диапазоне: сон < 5.5ч, стресс > 7/10, настроение < 4/10, вода < 1000 мл`,
+    `   attention = метрика немного ниже нормы ИЛИ тренд ухудшается, но значение ещё приемлемо`,
+    `   good      = метрика в норме или выше. Заголовок не должен звучать как упрёк или призыв к срочному действию.`,
+    `   Низкий стресс (< 5/10) — это ХОРОШО, severity не может быть alert даже если тренд растёт.`,
     ``,
-    `6. ТОН: поддерживающий, без осуждения.`,
+    `6. СОРТИРОВКА: alert → attention → good.`,
     ``,
-    `7. ФОРМАТ: ТОЛЬКО валидный JSON без markdown, без текста до или после.`,
+    `7. ТОН: поддерживающий, без осуждения.`,
+    ``,
+    `8. ФОРМАТ: ТОЛЬКО валидный JSON без markdown, без текста до или после.`,
   ].filter(s => s !== '').join('\n')
 
   // ── User prompt — только данные ───────────────────────────
@@ -315,6 +427,8 @@ export function buildRecommendationPrompt(
   if (badSleepStreak >= 2) {
     parts.push(`  ВНИМАНИЕ: ${badSleepStreak} дней подряд сон менее 6 ч`)
   }
+  // Время отхода ко сну и регулярность
+  buildSleepTimingLines(healthData.sleep, W).forEach(l => parts.push(l))
   parts.push(``)
   parts.push(`Настроение:`)
   parts.push(`  Среднее: ${stats.mood.avg}/10 (мин ${stats.mood.min} — макс ${stats.mood.max})`)
@@ -337,6 +451,8 @@ export function buildRecommendationPrompt(
   parts.push(`Питание:`)
   parts.push(`  Калории: ${stats.calories.avg} ккал/день`)
   parts.push(`  Белок: ${stats.protein.avg} г/день`)
+  // Время приёмов пищи — ключевой контекст для кортизола и сна
+  buildMealTimingLines(healthData.nutrition, W).forEach(l => parts.push(l))
 
   // SHAP — структурированные факторы
   if (ml) {
@@ -352,8 +468,8 @@ export function buildRecommendationPrompt(
     parts.push(``)
     parts.push(`НАУЧНЫЙ КОНТЕКСТ (PubMed) — можно цитировать как "Согласно исследованию [N]":`)
     articles.forEach((a, i) => {
-      parts.push(`[${i + 1}] ${a.title} (${a.year}, PMID:${a.pmid})`)
-      parts.push(`    ${a.abstract.slice(0, 300)}...`)
+      parts.push(`[${i + 1}] ${sanitizeForPrompt(a.title, 200)} (${a.year}, PMID:${sanitizeForPrompt(a.pmid, 20)})`)
+      parts.push(`    ${sanitizeForPrompt(a.abstract, 300)}...`)
     })
   }
 

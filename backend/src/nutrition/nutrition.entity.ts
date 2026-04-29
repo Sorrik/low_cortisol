@@ -1,4 +1,9 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity, PrimaryGeneratedColumn, Column,
+  CreateDateColumn, UpdateDateColumn, Index,
+  ManyToOne, JoinColumn,
+} from 'typeorm';
+import { User } from '../users/user.entity';
 
 const decimalTransformer = {
   to:   (value: number) => value,
@@ -6,12 +11,17 @@ const decimalTransformer = {
 };
 
 @Entity('nutritiondata')
+@Index('idx_nutrition_user_date', ['userId', 'date'])
 export class NutritionData {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
   @Column({ name: 'userid' })
   userId!: string;
+
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'userid' })
+  user!: User;
 
   @Column({ type: 'date' })
   date!: string;

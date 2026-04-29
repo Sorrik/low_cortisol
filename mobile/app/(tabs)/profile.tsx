@@ -15,7 +15,9 @@ import { useRouter } from 'expo-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Ionicons } from '@expo/vector-icons'
 
-import { Colors, Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme'
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles';
+import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext'
 import { 
   getProfile, 
@@ -33,15 +35,20 @@ import {
 
 import { Button } from '@/components/ui/Button'
 
-const Badge = ({ children, variant = 'secondary' }: { children: React.ReactNode; variant?: 'default' | 'secondary' }) => (
-  <View style={[styles.badge, variant === 'default' ? styles.badgePrimary : styles.badgeSecondary]}>
-    <Text style={[styles.badgeText, variant === 'default' ? styles.badgeTextPrimary : styles.badgeTextSecondary]}>
-      {children}
-    </Text>
-  </View>
-)
+function Badge({ children, variant = 'secondary' }: { children: React.ReactNode; variant?: 'default' | 'secondary' }) {
+  const styles = useThemedStyles(createStyles);
+  return (
+    <View style={[styles.badge, variant === 'default' ? styles.badgePrimary : styles.badgeSecondary]}>
+      <Text style={[styles.badgeText, variant === 'default' ? styles.badgeTextPrimary : styles.badgeTextSecondary]}>
+        {children}
+      </Text>
+    </View>
+  )
+}
 
 function ProgressBar({ progress }: { progress: number }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   return (
     <View style={styles.progressBar}>
       <View style={[styles.progressFill, { width: `${Math.min(Math.max(progress, 0), 100)}%` }]} />
@@ -50,8 +57,11 @@ function ProgressBar({ progress }: { progress: number }) {
 }
 
 export default function ProfileScreen() {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const router = useRouter()
   const { signOut } = useAuth()
+  const { theme, setTheme, isDark } = useTheme()
   const queryClient = useQueryClient()
 
   const [editingAccount, setEditingAccount] = useState(false)
@@ -118,7 +128,7 @@ export default function ProfileScreen() {
   if (profileLoading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={Colors.primary} size="large" />
+        <ActivityIndicator color={colors.primary} size="large" />
       </View>
     )
   }
@@ -134,7 +144,7 @@ export default function ProfileScreen() {
             <Text style={styles.cardTitle}>Данные аккаунта</Text>
             {!editingAccount && (
               <TouchableOpacity onPress={startEditAccount} style={styles.editBtn}>
-                <Ionicons name="pencil" size={16} color={Colors.primary} />
+                <Ionicons name="pencil" size={16} color={colors.primary} />
                 <Text style={styles.editBtnText}> Изменить</Text>
               </TouchableOpacity>
             )}
@@ -147,11 +157,13 @@ export default function ProfileScreen() {
                 {(profile?.lastName?.[0] || 'M').toUpperCase()}
               </Text>
             </View>
-            <View>
-              <Text style={styles.name}>
+            <View style={styles.accountHeroText}>
+              <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">
                 {profile?.firstName} {profile?.lastName}
               </Text>
-              <Text style={styles.email}>{profile?.email}</Text>
+              <Text style={styles.email} numberOfLines={1} ellipsizeMode="tail">
+                {profile?.email}
+              </Text>
             </View>
           </View>
 
@@ -188,7 +200,7 @@ export default function ProfileScreen() {
             {/* Цели */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Ionicons name="flag" size={18} color={Colors.primary} />
+                <Ionicons name="flag" size={18} color={colors.primary} />
                 <Text style={styles.sectionTitle}>Цели</Text>
               </View>
               <View style={styles.badgeRow}>
@@ -282,12 +294,48 @@ export default function ProfileScreen() {
                 onPress={() => router.push('/onboarding')}
                 style={styles.reSurveyButton}
               >
-                <Ionicons name="refresh" size={18} color={Colors.primary} />
+                <Ionicons name="refresh" size={18} color={colors.primary} />
                 <Text style={{ marginLeft: 8, fontWeight: '600' }}>Пройти анкету заново</Text>
               </Button>
             </View>
           </View>
         )}
+
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Внешний вид</Text>
+          </View>
+          <View style={styles.themeRow}>
+            <TouchableOpacity
+              onPress={() => setTheme('light')}
+              activeOpacity={0.8}
+              style={[styles.themeOption, !isDark && styles.themeOptionActive]}
+            >
+              <Ionicons
+                name="sunny"
+                size={20}
+                color={!isDark ? colors.primary : colors.mutedForeground}
+              />
+              <Text style={[styles.themeOptionText, !isDark && styles.themeOptionTextActive]}>
+                Светлая
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setTheme('dark')}
+              activeOpacity={0.8}
+              style={[styles.themeOption, isDark && styles.themeOptionActive]}
+            >
+              <Ionicons
+                name="moon"
+                size={20}
+                color={isDark ? colors.primary : colors.mutedForeground}
+              />
+              <Text style={[styles.themeOptionText, isDark && styles.themeOptionTextActive]}>
+                Тёмная
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
         <Button variant="destructive" onPress={handleLogout} style={styles.logoutButton}>
           Выйти
@@ -299,71 +347,97 @@ export default function ProfileScreen() {
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   content: { padding: Spacing.lg },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  pageTitle: { fontSize: FontSize.xxl, fontWeight: FontWeight.bold, color: Colors.foreground, marginBottom: Spacing.lg },
+  pageTitle: { fontSize: FontSize.xxl, fontWeight: FontWeight.bold, color: colors.foreground, marginBottom: Spacing.lg },
 
   card: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     padding: Spacing.lg,
     marginBottom: Spacing.lg,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
   },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
-  cardTitle: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: Colors.foreground },
+  cardTitle: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: colors.foreground },
 
   accountHero: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginBottom: Spacing.lg },
-  avatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: Colors.primaryMuted, justifyContent: 'center', alignItems: 'center' },
-  avatarText: { fontSize: 28, fontWeight: '700', color: Colors.primary },
+  accountHeroText: { flex: 1, minWidth: 0 },
+  avatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: colors.primaryMuted, justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
+  avatarText: { fontSize: 28, fontWeight: '700', color: colors.primary },
 
-  name: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.foreground },
-  email: { fontSize: FontSize.sm, color: Colors.mutedForeground },
+  name: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: colors.foreground },
+  email: { fontSize: FontSize.sm, color: colors.mutedForeground },
 
   editBtn: { flexDirection: 'row', alignItems: 'center' },
-  editBtnText: { color: Colors.primary, fontSize: FontSize.sm, fontWeight: '600' },
+  editBtnText: { color: colors.primary, fontSize: FontSize.sm, fontWeight: '600' },
 
   infoRow: { flexDirection: 'row', gap: Spacing.lg, marginTop: Spacing.sm },
   infoBlock: { flex: 1 },
-  infoLabel: { fontSize: FontSize.xs, color: Colors.mutedForeground, marginBottom: 2 },
-  infoValue: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.foreground },
+  infoLabel: { fontSize: FontSize.xs, color: colors.mutedForeground, marginBottom: 2 },
+  infoValue: { fontSize: FontSize.sm, fontWeight: '600', color: colors.foreground },
 
   section: { marginTop: Spacing.lg },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  sectionTitle: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.foreground },
+  sectionTitle: { fontSize: FontSize.sm, fontWeight: '600', color: colors.foreground },
 
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
 
   badge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
-  badgePrimary: { backgroundColor: Colors.primary },
-  badgeSecondary: { backgroundColor: Colors.secondary },
+  badgePrimary: { backgroundColor: colors.primary },
+  badgeSecondary: { backgroundColor: colors.secondary },
   badgeText: { fontSize: 13, fontWeight: '600' },
   badgeTextPrimary: { color: '#fff' },
-  badgeTextSecondary: { color: Colors.mutedForeground },
+  badgeTextSecondary: { color: colors.mutedForeground },
 
-  stressSection: { marginTop: Spacing.xl, paddingTop: Spacing.xl, borderTopWidth: 1, borderTopColor: Colors.border },
+  stressSection: { marginTop: Spacing.xl, paddingTop: Spacing.xl, borderTopWidth: 1, borderTopColor: colors.border },
   stressLarge: { fontSize: 42, fontWeight: '700', marginBottom: 4 },
   stressLabel: { fontSize: FontSize.sm, fontWeight: '600' },
-  small: { fontSize: FontSize.xs, color: Colors.mutedForeground },
+  small: { fontSize: FontSize.xs, color: colors.mutedForeground },
 
   miniLink: { 
     fontSize: FontSize.sm, 
-    color: Colors.primary, 
+    color: colors.primary, 
     fontWeight: '600' 
   },
 
-  reSurveyContainer: { marginTop: Spacing.xl, paddingTop: Spacing.xl, borderTopWidth: 1, borderTopColor: Colors.border },
-  reSurveyText: { fontSize: FontSize.sm, color: Colors.mutedForeground, marginBottom: Spacing.md },
+  reSurveyContainer: { marginTop: Spacing.xl, paddingTop: Spacing.xl, borderTopWidth: 1, borderTopColor: colors.border },
+  reSurveyText: { fontSize: FontSize.sm, color: colors.mutedForeground, marginBottom: Spacing.md },
   reSurveyButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
 
   buttonRow: { flexDirection: 'row', gap: 12, marginTop: 16 },
 
-  progressBar: { height: 6, backgroundColor: Colors.secondary, borderRadius: 999, overflow: 'hidden', marginTop: 4 },
-  progressFill: { height: '100%', backgroundColor: Colors.primary },
+  progressBar: { height: 6, backgroundColor: colors.secondary, borderRadius: 999, overflow: 'hidden', marginTop: 4 },
+  progressFill: { height: '100%', backgroundColor: colors.primary },
 
   logoutButton: { marginTop: Spacing.lg },
-  version: { textAlign: 'center', color: Colors.mutedForeground, fontSize: 10, marginTop: Spacing.xl },
+  themeRow: { flexDirection: 'row', gap: Spacing.sm, padding: Spacing.lg, paddingTop: 0 },
+  themeOption: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: colors.secondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  themeOptionActive: {
+    backgroundColor: colors.primaryMuted,
+    borderColor: colors.primary,
+  },
+  themeOptionText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    color: colors.mutedForeground,
+  },
+  themeOptionTextActive: {
+    color: colors.primary,
+  },
+  version: { textAlign: 'center', color: colors.mutedForeground, fontSize: 10, marginTop: Spacing.xl },
 })

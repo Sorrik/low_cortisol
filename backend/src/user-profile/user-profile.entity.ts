@@ -22,7 +22,7 @@ export class UserProfile {
   @Column({ name: 'user_id', unique: true })
   userId!: string
 
-  @OneToOne(() => User)
+  @OneToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user!: User
 

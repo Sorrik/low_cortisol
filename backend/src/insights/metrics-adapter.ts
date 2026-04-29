@@ -43,8 +43,8 @@ export class MetricsAdapter {
   ): UserMetrics {
 
     // ── Сон ───────────────────────────────────────────────────
-    const sleepHours   = sleep.map(s => s.hours ?? 0).filter(Boolean)
-    const sleepQuality = sleep.map(s => s.quality ?? 0).filter(Boolean)
+    const sleepHours   = sleep.map(s => s.hours).filter((v): v is number => v != null)
+    const sleepQuality = sleep.map(s => s.quality).filter((v): v is number => v != null)
 
     const avgSleepHours   = MetricsAdapter.avg(sleepHours)
     const avgSleepQuality = MetricsAdapter.avg(sleepQuality)
@@ -75,8 +75,8 @@ export class MetricsAdapter {
     const activeDays      = dailyActivity.filter(d => d > 0).length
 
     // ── Стресс / Настроение ───────────────────────────────────
-    const moodScores    = mood.map(m => m.score ?? 0).filter(Boolean)
-    const stressLevels  = mood.map(m => m.stressLevel ?? 0).filter(Boolean)
+    const moodScores    = mood.map(m => m.score).filter((v): v is number => v != null)
+    const stressLevels  = mood.map(m => m.stressLevel).filter((v): v is number => v != null)
 
     const avgMoodScore   = MetricsAdapter.avg(moodScores)
     const avgStressLevel = MetricsAdapter.avg(stressLevels)

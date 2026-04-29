@@ -15,7 +15,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles';
+import { useTheme } from '@/context/ThemeContext';
+
 import {
   getSleepRecords,
   getNutritionRecords,
@@ -26,6 +29,7 @@ import {
 } from '@/lib/health-api';
 import { MetricCard } from '@/components/dashboard/MetricCard';
 import { StreakWidget } from '@/components/dashboard/StreakWidget';
+import { SleepSessionBanner } from '@/components/dashboard/SleepSessionBanner';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_GAP = Spacing.md;
@@ -88,6 +92,8 @@ interface AnimatedCardProps {
 }
 
 function AnimatedCard({ children, index, style }: AnimatedCardProps) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(30)).current;
   const scale = useRef(new Animated.Value(0.9)).current;
@@ -138,6 +144,8 @@ interface AnimatedAddButtonProps {
 }
 
 function AnimatedAddButton({ onPress }: AnimatedAddButtonProps) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
@@ -173,6 +181,8 @@ function AnimatedAddButton({ onPress }: AnimatedAddButtonProps) {
 
 // ── Component ─────────────────────────────────────────────────
 export default function DashboardScreen() {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
   const todayStr = toLocalDateStr(new Date());
@@ -215,32 +225,30 @@ export default function DashboardScreen() {
   }
 
   // Queries
-  const { data: sleep = [], isLoading: l1 } = useQuery({
+  const { data: sleep = [] } = useQuery({
     queryKey: ['sleep'],
     queryFn: getSleepRecords,
   });
-  const { data: nutrition = [], isLoading: l2 } = useQuery({
+  const { data: nutrition = [] } = useQuery({
     queryKey: ['nutrition'],
     queryFn: getNutritionRecords,
   });
-  const { data: mood = [], isLoading: l3 } = useQuery({
+  const { data: mood = [] } = useQuery({
     queryKey: ['mood'],
     queryFn: getMoodRecords,
   });
-  const { data: stress = [], isLoading: l4 } = useQuery({
+  const { data: stress = [] } = useQuery({
     queryKey: ['stress'],
     queryFn: getStressRecords,
   });
-  const { data: activity = [], isLoading: l5 } = useQuery({
+  const { data: activity = [] } = useQuery({
     queryKey: ['activity'],
     queryFn: getActivityRecords,
   });
-  const { data: water = [], isLoading: l6 } = useQuery({
+  const { data: water = [] } = useQuery({
     queryKey: ['water'],
     queryFn: getWaterRecords,
   });
-
-  const loading = l1 || l2 || l3 || l4 || l5 || l6;
 
   // Pull to refresh
   async function onRefresh() {
@@ -333,8 +341,8 @@ export default function DashboardScreen() {
       href: '/sleep',
       progress: daySleep ? (daySleep.hours / 8) * 100 : 0,
       sparklineData: sleepSparkline.map((d) => d.value),
-      color: Colors.sleep,
-      colorMuted: Colors.sleepMuted,
+      color: colors.sleep,
+      colorMuted: colors.sleepMuted,
     },
     {
       title: 'Питание',
@@ -344,8 +352,8 @@ export default function DashboardScreen() {
       href: '/nutrition',
       progress: dayNutrition ? (dayNutrition.kcal / 2000) * 100 : 0,
       sparklineData: nutritionSparkline.map((d) => d.value),
-      color: Colors.nutrition,
-      colorMuted: Colors.nutritionMuted,
+      color: colors.nutrition,
+      colorMuted: colors.nutritionMuted,
     },
     {
       title: 'Настроение',
@@ -355,8 +363,8 @@ export default function DashboardScreen() {
       href: '/mood',
       progress: dayMood ? (dayMood.value / 10) * 100 : 0,
       sparklineData: moodSparkline.map((d) => d.value),
-      color: Colors.mood,
-      colorMuted: Colors.moodMuted,
+      color: colors.mood,
+      colorMuted: colors.moodMuted,
     },
     {
       title: 'Стресс',
@@ -366,8 +374,8 @@ export default function DashboardScreen() {
       href: '/stress',
       progress: dayStress ? (dayStress.level / 10) * 100 : 0,
       sparklineData: stressSparkline.map((d) => d.value),
-      color: Colors.stress,
-      colorMuted: Colors.stressMuted,
+      color: colors.stress,
+      colorMuted: colors.stressMuted,
     },
     {
       title: 'Активность',
@@ -377,8 +385,8 @@ export default function DashboardScreen() {
       href: '/activity',
       progress: dayActivity ? (dayActivity.duration / 60) * 100 : 0,
       sparklineData: activitySparkline.map((d) => d.value),
-      color: Colors.activity,
-      colorMuted: Colors.activityMuted,
+      color: colors.activity,
+      colorMuted: colors.activityMuted,
     },
     {
       title: 'Вода',
@@ -388,8 +396,8 @@ export default function DashboardScreen() {
       href: '/water',
       progress: dayWater ? (dayWater.glasses / 8) * 100 : 0,
       sparklineData: waterSparkline.map((d) => d.value),
-      color: Colors.water,
-      colorMuted: Colors.waterMuted,
+      color: colors.water,
+      colorMuted: colors.waterMuted,
     },
   ];
 
@@ -400,7 +408,7 @@ export default function DashboardScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
         {/* Animated Header */}
@@ -434,7 +442,7 @@ export default function DashboardScreen() {
             activeOpacity={0.7}
           >
             <View style={styles.dateButtonInner}>
-              <Ionicons name="chevron-back" size={18} color={Colors.foreground} />
+              <Ionicons name="chevron-back" size={18} color={colors.foreground} />
             </View>
           </TouchableOpacity>
 
@@ -451,7 +459,7 @@ export default function DashboardScreen() {
               </View>
               {!isToday && (
                 <View style={styles.todayBadge}>
-                  <Ionicons name="arrow-forward" size={12} color={Colors.primary} />
+                  <Ionicons name="arrow-forward" size={12} color={colors.primary} />
                   <Text style={styles.todayText}>Сегодня</Text>
                 </View>
               )}
@@ -467,11 +475,13 @@ export default function DashboardScreen() {
               activeOpacity={0.7}
             >
               <View style={styles.dateButtonInner}>
-                <Ionicons name="chevron-forward" size={18} color={Colors.foreground} />
+                <Ionicons name="chevron-forward" size={18} color={colors.foreground} />
               </View>
             </TouchableOpacity>
           )}
         </Animated.View>
+
+        <SleepSessionBanner />
 
         {/* Streak Widget */}
         <AnimatedCard index={0} style={styles.streakWrapper}>
@@ -516,10 +526,10 @@ export default function DashboardScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   scrollView: {
     flex: 1,
@@ -537,25 +547,25 @@ const styles = StyleSheet.create({
   },
   greeting: {
     fontSize: FontSize.sm,
-    color: Colors.cardHover,
+    color: colors.cardHover,
     marginBottom: 4,
   },
   title: {
     fontSize: FontSize.xxl,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
     letterSpacing: -0.5,
   },
   aiButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     ...Platform.select({
       ios: {
-        shadowColor: Colors.primary,
+        shadowColor: colors.primary,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
         shadowRadius: 8,
@@ -573,10 +583,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.sm,
     marginBottom: Spacing.lg,
@@ -602,7 +612,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 12,
-    backgroundColor: Colors.cardHover,
+    backgroundColor: colors.cardHover,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -614,7 +624,7 @@ const styles = StyleSheet.create({
   dateText: {
     fontSize: FontSize.base,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
     textTransform: 'capitalize',
     marginBottom: 6,
   },
@@ -626,7 +636,7 @@ const styles = StyleSheet.create({
   metricsBadge: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    backgroundColor: Colors.primaryMuted,
+    backgroundColor: colors.primaryMuted,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
@@ -634,27 +644,30 @@ const styles = StyleSheet.create({
   metricsCount: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   metricsTotal: {
     fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   todayBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: Colors.primaryMuted,
+    backgroundColor: colors.primaryMuted,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
   },
   todayText: {
     fontSize: FontSize.xs,
-    color: Colors.primary,
+    color: colors.primary,
     fontWeight: FontWeight.medium,
   },
   streakWrapper: {
+    marginBottom: Spacing.md,
+  },
+  anomalyWrapper: {
     marginBottom: Spacing.md,
   },
   metricsGrid: {
@@ -675,7 +688,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   addButton: {
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     width: 32,
     height: 32,
     borderRadius: 10,
@@ -683,7 +696,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...Platform.select({
       ios: {
-        shadowColor: Colors.primary,
+        shadowColor: colors.primary,
         shadowOffset: { width: 0, height: 3 },
         shadowOpacity: 0.3,
         shadowRadius: 6,

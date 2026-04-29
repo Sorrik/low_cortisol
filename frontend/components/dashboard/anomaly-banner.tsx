@@ -83,7 +83,9 @@ function AnomalyCard({ anomaly }: { anomaly: Anomaly }) {
             Значение: <span className="font-medium">{anomaly.value}</span>
             {" · "}
             Ваша норма: <span className="font-medium">{anomaly.norm}</span>
-            {anomaly.deviation != null && ` · Отклонение: ${anomaly.deviation}%`}
+            {anomaly.deviation != null && ` · Отклонение: ${anomaly.deviation}${
+              anomaly.metric === 'mood' || anomaly.metric === 'stress' ? ' пункта' : '%'
+            }`}
           </p>
         )}
       </div>

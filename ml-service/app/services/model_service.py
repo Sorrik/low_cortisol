@@ -8,9 +8,11 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import joblib
 import shap
+from sklearn.base import clone
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.linear_model import Ridge
-from sklearn.model_selection import cross_val_score, KFold
+from sklearn.linear_model import Ridge, RidgeCV
+from sklearn.model_selection import TimeSeriesSplit, cross_val_score
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from app.schemas.input import HealthData
@@ -21,11 +23,11 @@ from app.services.feature_engineering import (
 )
 from app.services.model_storage import (
     get_model_path,
-    get_meta_path,
     get_scaler_path,
-    save_model_meta,
     get_model_meta,
+    save_model_meta,
 )
+from app.services.model_artifacts import atomic_joblib_dump, user_model_lock
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +41,14 @@ logger = logging.getLogger(__name__)
 
 MIN_SAMPLES_TO_TRAIN = 14   # минимум 14 дней (2 полных недели)
 MIN_SAMPLES_CV       = 20   # кросс-валидация с n >= 20
-MIN_SAMPLES_GBR      = 30   # GBR надёжен при n >= 30, иначе — Ridge
+MIN_SAMPLES_GBR      = 50   # GBR надёжен при n >= 50, иначе — Ridge (было 30)
 
 RF_N_ESTIMATORS      = 200
 RF_MAX_DEPTH         = 4    # было 6 → снижаем риск переобучения
 RF_MIN_SAMPLES_LEAF  = 3    # было 2 → строже
 RF_RANDOM_STATE      = 42
+
+_MODEL_CACHE: Dict[str, Tuple[str, Any, StandardScaler]] = {}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -58,6 +62,7 @@ RF_RANDOM_STATE      = 42
 def _build_dataset(
     data: HealthData,
     feature_names: Optional[List[str]] = None,
+    user_profile: Optional[Any] = None,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], List[str]]:
     if not data.mood or len(data.mood) < MIN_SAMPLES_TO_TRAIN:
         return None, None, feature_names or []
@@ -77,7 +82,7 @@ def _build_dataset(
         if data_slice is None:
             continue
 
-        feats = build_features(data_slice)
+        feats = build_features(data_slice, user_profile=user_profile)
         if not feats:
             continue
 
@@ -117,15 +122,55 @@ def _slice_data_before(data: HealthData, cutoff_date_str: str) -> Optional[Healt
         return None
 
 
+def _build_estimator(samples_count: int):
+    if samples_count < MIN_SAMPLES_GBR:
+        estimator = RidgeCV(
+            alphas=[0.01, 0.1, 1.0, 10.0, 100.0],
+            cv=max(2, min(5, samples_count // 3)),
+        )
+        return estimator, "ridge"
+
+    n_estimators = min(200, samples_count * 4)
+    estimator = GradientBoostingRegressor(
+        n_estimators=n_estimators,
+        learning_rate=0.05,
+        max_depth=3,
+        subsample=0.8,
+        min_samples_leaf=max(3, samples_count // 15),
+        random_state=RF_RANDOM_STATE,
+    )
+    return estimator, "gradient_boosting"
+
+
+def _build_cv_pipeline(estimator) -> Pipeline:
+    return Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            ("model", clone(estimator)),
+        ]
+    )
+
+
+def _get_cached_model(user_id: str, version: str):
+    cached = _MODEL_CACHE.get(user_id)
+    if cached and cached[0] == version:
+        return cached[1], cached[2]
+    return None, None
+
+
+def _set_cached_model(user_id: str, version: str, model: Any, scaler: StandardScaler) -> None:
+    _MODEL_CACHE[user_id] = (version, model, scaler)
+
+
 # ─────────────────────────────────────────────────────────────
 # Train
 # ─────────────────────────────────────────────────────────────
 
-def train_model(user_id: str, data: HealthData) -> Dict[str, Any]:
+def train_model(user_id: str, data: HealthData, user_profile: Optional[Any] = None) -> Dict[str, Any]:
     meta                   = get_model_meta(user_id)
     existing_feature_names = meta.get("feature_names") if meta else None
 
-    X, y, feature_names = _build_dataset(data, feature_names=existing_feature_names)
+    X, y, feature_names = _build_dataset(data, feature_names=existing_feature_names, user_profile=user_profile)
 
     if X is None or y is None or len(y) < MIN_SAMPLES_TO_TRAIN:
         return {
@@ -153,11 +198,14 @@ def train_model(user_id: str, data: HealthData) -> Dict[str, Any]:
     model_type_name: str
 
     if samples_count < MIN_SAMPLES_GBR:
-        # Ridge — линейная регрессия с L2-регуляризацией
-        model = Ridge(alpha=1.0)
+        # RidgeCV — Ridge с автоматическим подбором alpha через LOO кросс-валидацию
+        # Намного точнее чем фиксированный alpha=1.0 на малых выборках (n=14-49)
+        model = RidgeCV(alphas=[0.01, 0.1, 1.0, 10.0, 100.0], cv=min(5, samples_count // 3))
         model.fit(X_scaled, y)
         model_type_name = "ridge"
-        logger.info(f"[{user_id}] Ridge (n={samples_count} < {MIN_SAMPLES_GBR})")
+        logger.info(
+            f"[{user_id}] RidgeCV alpha={model.alpha_:.3f} (n={samples_count} < {MIN_SAMPLES_GBR})"
+        )
 
     else:
         # GradientBoostingRegressor — основная модель для диплома
@@ -247,6 +295,7 @@ def train_model(user_id: str, data: HealthData) -> Dict[str, Any]:
 def predict_mood(
     user_id: str,
     data: HealthData,
+    user_profile: Optional[Any] = None,
 ) -> Tuple[Optional[float], Optional[float], Optional[float], List[Dict]]:
 
     meta = get_model_meta(user_id)
@@ -273,7 +322,7 @@ def predict_mood(
         logger.error(f"[{user_id}] Failed to load model: {e}")
         return None, None, None, []
 
-    feats = build_features(data)
+    feats = build_features(data, user_profile=user_profile)
     if not feats:
         return None, None, None, []
 
@@ -342,21 +391,21 @@ def _calculate_shap(
     model_type: str = "unknown",
 ) -> List[Dict]:
     try:
-        # GBR и RF поддерживают TreeExplainer (быстро, точно)
-        # Ridge — используем LinearExplainer
+        # GBR и RF: TreeExplainer.shap_values() → ndarray
+        # Ridge:    LinearExplainer()           → Explanation объект
+        # Унифицируем оба пути в shap_arr_raw: np.ndarray до общего кода
         if model_type in ("gradient_boosting", "random_forest") or hasattr(model, "estimators_"):
-            explainer   = shap.TreeExplainer(model)
-            shap_values = explainer.shap_values(x_scaled)
+            explainer    = shap.TreeExplainer(model)
+            shap_arr_raw = np.array(explainer.shap_values(x_scaled)[0])
         else:
-            # Ridge
-            explainer = shap.LinearExplainer(model, masker=shap.maskers.Independent(x_scaled))
-            shap_values = explainer(x_scaled)
-            shap_arr = shap_values.values[0]
+            # Ridge — LinearExplainer возвращает Explanation, берём .values[0]
+            explainer    = shap.LinearExplainer(model, masker=shap.maskers.Independent(x_scaled))
+            shap_arr_raw = np.array(explainer(x_scaled).values[0])
 
-        if shap_values is None or len(shap_values[0]) == 0:
+        if shap_arr_raw is None or len(shap_arr_raw) == 0:
             return []
 
-        shap_arr    = np.abs(shap_values[0])
+        shap_arr    = np.abs(shap_arr_raw)
         top_indices = np.argsort(shap_arr)[::-1][:top_n]
 
         influencers: List[Dict] = []
@@ -365,7 +414,7 @@ def _calculate_shap(
                 continue
 
             factor        = feature_names[idx]
-            raw_shap      = float(shap_values[0][idx])
+            raw_shap      = float(shap_arr_raw[idx])
             abs_shap      = abs(raw_shap)
             feature_value = float(feats_dict.get(factor, 0.0))
             direction     = "positive" if raw_shap >= 0 else "negative"

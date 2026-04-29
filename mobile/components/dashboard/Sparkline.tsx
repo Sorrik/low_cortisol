@@ -1,7 +1,7 @@
 import React from 'react'
 import { View, StyleSheet } from 'react-native'
 import Svg, { Polyline, Defs, LinearGradient, Stop, Rect } from 'react-native-svg'
-import { Colors, BorderRadius } from '@/constants/theme'
+import { BorderRadius } from '@/constants/theme'
 
 interface SparklineProps {
   data: number[]

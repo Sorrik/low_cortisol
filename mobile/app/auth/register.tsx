@@ -12,7 +12,9 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { useForm, Controller } from 'react-hook-form'
 import { Ionicons } from '@expo/vector-icons'
-import { Colors, Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme'
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles';
+import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -26,6 +28,8 @@ interface RegisterFormValues {
 }
 
 export default function RegisterScreen() {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const router = useRouter()
   const { signUp } = useAuth()
   const [error, setError] = useState<string | null>(null)
@@ -56,10 +60,13 @@ export default function RegisterScreen() {
         password: data.password,
       })
     } catch (err: any) {
-      if (err.response?.status === 409) {
+      const status = err?.response?.status
+      if (status === 409) {
         setError('Пользователь с таким email уже существует')
+      } else if (status === 400 || status === 422) {
+        setError('Проверьте правильность введённых данных')
       } else {
-        setError('Ошибка регистрации. Попробуйте снова')
+        setError('Ошибка соединения. Попробуйте снова')
       }
     } finally {
       setIsLoading(false)
@@ -79,7 +86,7 @@ export default function RegisterScreen() {
           {/* Logo */}
           <View style={styles.logoSection}>
             <View style={styles.logoWrapper}>
-              <Ionicons name="heart-circle" size={40} color={Colors.primary} />
+              <Ionicons name="heart-circle" size={40} color={colors.primary} />
               <Text style={styles.logoText}>LowCor</Text>
             </View>
             <Text style={styles.tagline}>Следи за здоровьем. Понимай себя.</Text>
@@ -161,7 +168,7 @@ export default function RegisterScreen() {
                     onBlur={onBlur}
                     error={errors.email?.message}
                     leftIcon={
-                      <Ionicons name="mail-outline" size={20} color={Colors.mutedForeground} />
+                      <Ionicons name="mail-outline" size={20} color={colors.mutedForeground} />
                     }
                   />
                 )}
@@ -190,7 +197,7 @@ export default function RegisterScreen() {
                     onBlur={onBlur}
                     error={errors.password?.message}
                     leftIcon={
-                      <Ionicons name="lock-closed-outline" size={20} color={Colors.mutedForeground} />
+                      <Ionicons name="lock-closed-outline" size={20} color={colors.mutedForeground} />
                     }
                   />
                 )}
@@ -220,10 +227,10 @@ export default function RegisterScreen() {
   )
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   keyboardView: {
     flex: 1,
@@ -246,12 +253,12 @@ const styles = StyleSheet.create({
   logoText: {
     fontSize: FontSize.xxxl,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
     letterSpacing: -0.5,
   },
   tagline: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     textTransform: 'uppercase',
     letterSpacing: 1,
     textAlign: 'center',
@@ -264,15 +271,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
   },
   errorContainer: {
-    backgroundColor: Colors.destructiveMuted,
+    backgroundColor: colors.destructiveMuted,
     borderWidth: 1,
-    borderColor: Colors.destructive,
+    borderColor: colors.destructive,
     borderRadius: BorderRadius.lg,
     padding: Spacing.md,
     marginBottom: Spacing.lg,
   },
   errorText: {
-    color: Colors.destructive,
+    color: colors.destructive,
     fontSize: FontSize.sm,
     textAlign: 'center',
   },
@@ -292,11 +299,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   footerText: {
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     fontSize: FontSize.sm,
   },
   footerLink: {
-    color: Colors.primary,
+    color: colors.primary,
     fontSize: FontSize.sm,
     fontWeight: FontWeight.semibold,
   },

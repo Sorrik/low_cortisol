@@ -39,13 +39,40 @@ export class CacheInvalidationService {
   async invalidateWithMetric(userId: string, date: string): Promise<void> {
     await this.invalidate(userId)
     try {
-      const snap = await this.buildSnapshot(userId, date)
-      const result = await this.gamification.processDay(userId, snap)
-      if (result.newBadges.length > 0)
-        this.logger.log(`[gamification] новые бейджи: ${result.newBadges.join(', ')}`)
+      const today = new Date().toISOString().split('T')[0]
+      if (date < today) {
+        // Прошлая дата → пересчитываем ВСЕ стрики с нуля по всей истории
+        const allDates  = await this.getAllUserDates(userId)
+        const snapshots = await Promise.all(allDates.map(d => this.buildSnapshot(userId, d)))
+        await this.gamification.recalculateStreaks(userId, snapshots)
+        this.logger.log(`[gamification] streaks recalculated for ${userId} (past entry: ${date})`)
+      } else {
+        // Сегодняшняя дата → обычный processDay
+        const snap   = await this.buildSnapshot(userId, date)
+        const result = await this.gamification.processDay(userId, snap)
+        if (result.newBadges.length > 0)
+          this.logger.log(`[gamification] новые бейджи: ${result.newBadges.join(', ')}`)
+      }
     } catch (err) {
-      this.logger.warn(`[gamification] processDay failed (non-fatal): ${err}`)
+      this.logger.warn(`[gamification] failed (non-fatal): ${err}`)
     }
+  }
+
+  private async getAllUserDates(userId: string): Promise<string[]> {
+    const [sl, st, mo, ac, wa, nu] = await Promise.all([
+      this.sleepRepo.find({ where: { userId }, select: ['date'] }),
+      this.stressRepo.find({ where: { userId }, select: ['date'] }),
+      this.moodRepo.find({ where: { userId }, select: ['date'] }),
+      this.activityRepo.find({ where: { userId }, select: ['date'] }),
+      this.waterRepo.find({ where: { userId }, select: ['date'] }),
+      this.nutritionRepo.find({ where: { userId }, select: ['date'] }),
+    ])
+    const set = new Set<string>([
+      ...sl.map(r => r.date), ...st.map(r => r.date),
+      ...mo.map(r => r.date), ...ac.map(r => r.date),
+      ...wa.map(r => r.date), ...nu.map(r => r.date),
+    ])
+    return [...set].sort()
   }
 
   private async buildSnapshot(userId: string, date: string) {

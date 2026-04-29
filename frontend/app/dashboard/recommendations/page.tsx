@@ -3,14 +3,13 @@
 import { useQuery } from "@tanstack/react-query"
 import {
   Sparkles, Moon, UtensilsCrossed, Smile, Brain, Flame, Droplets,
-  RefreshCw, TrendingUp, BookOpen, ExternalLink, AlertTriangle,
-  CheckCircle2, AlertCircle, ChevronRight, Zap,
+  RefreshCw, TrendingUp, AlertTriangle, CheckCircle2, AlertCircle, Zap,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
-import { Badge }    from "@/components/ui/badge"
 import { Button }   from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { getInsights } from "@/lib/health-api"
+import { getAccessToken } from "@/lib/auth-store"
 import { AnomalyBanner } from "@/components/dashboard/anomaly-banner"
 import type { InsightsResponse, Recommendation, ArticleSource } from "@/types/health"
 import { useEffect, useState } from "react"
@@ -82,9 +81,6 @@ function RecommendationCard({ rec, sources }: { rec: Recommendation; sources: Ar
   const severity = severityConfig[rec.severity as SeverityType] ?? severityConfig.good
   const Icon     = metric.icon
   const SevIcon  = severity.icon
-  const citedIndices = [...rec.description.matchAll(/\[(\d+)\]/g)].map(m => parseInt(m[1]))
-  const citedSources = sources.filter(s => citedIndices.includes(s.index))
-
   return (
     <div className={`rounded-2xl border ${severity.borderColor} ${severity.bgColor} transition-all duration-300 hover:scale-[1.01] hover:shadow-lg`}>
       <div className="p-6">
@@ -187,12 +183,12 @@ function SkeletonCard() {
 // ── Page ──────────────────────────────────────────────────────
 
 export default function RecommendationsPage() {
+  const [mounted,  setMounted]  = useState(false)
   const [hasToken, setHasToken] = useState(false)
 
-  // Проверяем наличие токена только на клиенте
   useEffect(() => {
-    const token = localStorage.getItem("access_token")
-    setHasToken(!!token)
+    setMounted(true)
+    setHasToken(!!getAccessToken())
   }, [])
 
   const {
@@ -219,9 +215,13 @@ export default function RecommendationsPage() {
   const attentionRecs = recommendations.filter(r => r.severity === "attention")
   const goodRecs      = recommendations.filter(r => r.severity === "good")
 
-  // Если токена нет, показываем состояние загрузки или редирект (интерцептор сработает сам)
-  if (!hasToken && typeof window !== "undefined") {
-     return <div className="p-20 text-center text-muted-foreground">Проверка авторизации...</div>
+  // До монтирования: SSR и первый рендер клиента дают одинаковый результат → нет hydration mismatch
+  if (!mounted) {
+    return <div className="min-h-screen bg-background" />
+  }
+
+  if (!hasToken) {
+    return <div className="p-20 text-center text-muted-foreground">Проверка авторизации...</div>
   }
 
   return (

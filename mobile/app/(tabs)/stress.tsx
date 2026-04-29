@@ -18,7 +18,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Rect, Text as SvgText, Line, Path } from 'react-native-svg';
-import { Colors, Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles';
+import { useTheme } from '@/context/ThemeContext';
+
 import { getStressRecords, addStressRecord, updateStressRecord, deleteStressRecord } from '@/lib/health-api';
 import type { StressRecord } from '@/types/health';
 
@@ -68,6 +71,8 @@ function toLocalDateStr(date: Date): string {
 
 // Animated Card
 function AnimatedCard({ children, index, style }: { children: React.ReactNode; index: number; style?: any }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(20)).current;
 
@@ -97,6 +102,8 @@ function HistoryItem({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const [showActions, setShowActions] = useState(false);
   const stressColor = getStressColor(record.level);
@@ -135,7 +142,7 @@ function HistoryItem({
 
           {record.notes && (
             <View style={styles.notesPreview}>
-              <Ionicons name="chatbubble-outline" size={12} color={Colors.mutedForeground} />
+              <Ionicons name="chatbubble-outline" size={12} color={colors.mutedForeground} />
               <Text style={styles.notesText} numberOfLines={1}>{record.notes}</Text>
             </View>
           )}
@@ -143,12 +150,12 @@ function HistoryItem({
           {showActions && (
             <View style={styles.actionsRow}>
               <TouchableOpacity style={styles.actionButton} onPress={onEdit} activeOpacity={0.7}>
-                <Ionicons name="pencil" size={16} color={Colors.primary} />
-                <Text style={[styles.actionText, { color: Colors.primary }]}>Изменить</Text>
+                <Ionicons name="pencil" size={16} color={colors.primary} />
+                <Text style={[styles.actionText, { color: colors.primary }]}>Изменить</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionButton} onPress={onDelete} activeOpacity={0.7}>
-                <Ionicons name="trash" size={16} color={Colors.destructive} />
-                <Text style={[styles.actionText, { color: Colors.destructive }]}>Удалить</Text>
+                <Ionicons name="trash" size={16} color={colors.destructive} />
+                <Text style={[styles.actionText, { color: colors.destructive }]}>Удалить</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -160,6 +167,8 @@ function HistoryItem({
 
 // Stress Level Selector
 function StressLevelSelector({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   return (
     <View style={styles.levelContainer}>
       <View style={styles.levelTrack}>
@@ -199,6 +208,8 @@ function StressModal({
   editRecord: StressRecord | null;
   isLoading: boolean;
 }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const [date, setDate] = useState(toLocalDateStr(new Date()));
   const [level, setLevel] = useState(5);
   const [notes, setNotes] = useState('');
@@ -245,13 +256,13 @@ function StressModal({
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Дата</Text>
               <View style={styles.inputWrapper}>
-                <Ionicons name="calendar" size={18} color={Colors.mutedForeground} />
+                <Ionicons name="calendar" size={18} color={colors.mutedForeground} />
                 <TextInput
                   style={styles.input}
                   value={date}
                   onChangeText={setDate}
                   placeholder="YYYY-MM-DD"
-                  placeholderTextColor={Colors.mutedForeground}
+                  placeholderTextColor={colors.mutedForeground}
                 />
               </View>
             </View>
@@ -274,7 +285,7 @@ function StressModal({
                   value={notes}
                   onChangeText={setNotes}
                   placeholder="Что вызвало стресс?"
-                  placeholderTextColor={Colors.mutedForeground}
+                  placeholderTextColor={colors.mutedForeground}
                   multiline
                   numberOfLines={3}
                 />
@@ -286,7 +297,7 @@ function StressModal({
                 <Text style={styles.cancelButtonText}>Отмена</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.saveButton, { backgroundColor: Colors.stress }, isLoading && styles.saveButtonDisabled]}
+                style={[styles.saveButton, { backgroundColor: colors.stress }, isLoading && styles.saveButtonDisabled]}
                 onPress={handleSave}
                 disabled={isLoading}
                 activeOpacity={0.8}
@@ -309,6 +320,8 @@ function StressModal({
 }
 
 export default function StressScreen() {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -393,13 +406,13 @@ export default function StressScreen() {
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
         {/* Header */}
         <Animated.View style={[styles.header, { opacity: headerFade, transform: [{ translateY: headerTranslate }] }]}>
           <View style={styles.headerLeft}>
-            <View style={[styles.iconWrapper, { backgroundColor: Colors.stressMuted }]}>
-              <Ionicons name="pulse" size={26} color={Colors.stress} />
+            <View style={[styles.iconWrapper, { backgroundColor: colors.stressMuted }]}>
+              <Ionicons name="pulse" size={26} color={colors.stress} />
             </View>
             <View>
               <Text style={styles.title}>Стресс</Text>
@@ -407,7 +420,7 @@ export default function StressScreen() {
             </View>
           </View>
           <TouchableOpacity
-            style={[styles.addHeaderButton, { backgroundColor: Colors.stress }]}
+            style={[styles.addHeaderButton, { backgroundColor: colors.stress }]}
             onPress={() => {
               setEditRecord(null);
               setModalVisible(true);
@@ -433,18 +446,18 @@ export default function StressScreen() {
             </View>
           ) : (
             <View style={styles.todayEmpty}>
-              <Ionicons name="pulse-outline" size={32} color={Colors.mutedForeground} />
+              <Ionicons name="pulse-outline" size={32} color={colors.mutedForeground} />
               <Text style={styles.todayEmptyText}>Как ваш уровень стресса?</Text>
               <TouchableOpacity
-                style={[styles.todayAddButton, { backgroundColor: Colors.stressMuted }]}
+                style={[styles.todayAddButton, { backgroundColor: colors.stressMuted }]}
                 onPress={() => {
                   setEditRecord(null);
                   setModalVisible(true);
                 }}
                 activeOpacity={0.8}
               >
-                <Ionicons name="add" size={16} color={Colors.stress} />
-                <Text style={[styles.todayAddText, { color: Colors.stress }]}>Добавить</Text>
+                <Ionicons name="add" size={16} color={colors.stress} />
+                <Text style={[styles.todayAddText, { color: colors.stress }]}>Добавить</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -453,15 +466,15 @@ export default function StressScreen() {
         {/* Stats row */}
         <View style={styles.statsRow}>
           <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <View style={[styles.statIconBg, { backgroundColor: (avgStress ? getStressColor(avgStress) : Colors.stress) + '15' }]}>
-              <Ionicons name="analytics" size={18} color={avgStress ? getStressColor(avgStress) : Colors.stress} />
+            <View style={[styles.statIconBg, { backgroundColor: (avgStress ? getStressColor(avgStress) : colors.stress) + '15' }]}>
+              <Ionicons name="analytics" size={18} color={avgStress ? getStressColor(avgStress) : colors.stress} />
             </View>
             <Text style={styles.statValue}>{avgStress ?? '—'}/10</Text>
             <Text style={styles.statLabel}>среднее за 7 дней</Text>
           </AnimatedCard>
           <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <View style={[styles.statIconBg, { backgroundColor: Colors.primaryMuted }]}>
-              <Ionicons name="document-text" size={18} color={Colors.primary} />
+            <View style={[styles.statIconBg, { backgroundColor: colors.primaryMuted }]}>
+              <Ionicons name="document-text" size={18} color={colors.primary} />
             </View>
             <Text style={styles.statValue}>{records.length}</Text>
             <Text style={styles.statLabel}>записей</Text>
@@ -473,7 +486,7 @@ export default function StressScreen() {
           <Text style={styles.cardTitle}>Стресс за 7 дней</Text>
           {chartData.length === 0 ? (
             <View style={styles.emptyChart}>
-              <Ionicons name="bar-chart-outline" size={32} color={Colors.mutedForeground} />
+              <Ionicons name="bar-chart-outline" size={32} color={colors.mutedForeground} />
               <Text style={styles.emptyText}>Нет данных за последние 7 дней</Text>
             </View>
           ) : (
@@ -488,10 +501,10 @@ export default function StressScreen() {
                   return (
                     <React.Fragment key={i}>
                       <Rect x={x} y={y} width={barWidth} height={barHeight} rx={8} fill={getStressColor(d.level)} />
-                      <SvgText x={x + barWidth / 2} y={CHART_HEIGHT - 12} fontSize={10} fill={Colors.mutedForeground} textAnchor="middle">
+                      <SvgText x={x + barWidth / 2} y={CHART_HEIGHT - 12} fontSize={10} fill={colors.mutedForeground} textAnchor="middle">
                         {d.date}
                       </SvgText>
-                      <SvgText x={x + barWidth / 2} y={y - 8} fontSize={11} fill={Colors.foreground} fontWeight="600" textAnchor="middle">
+                      <SvgText x={x + barWidth / 2} y={y - 8} fontSize={11} fill={colors.foreground} fontWeight="600" textAnchor="middle">
                         {d.level}
                       </SvgText>
                     </React.Fragment>
@@ -509,14 +522,14 @@ export default function StressScreen() {
             {hasMoreRecords && (
               <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
                 <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
-                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.primary} />
+                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
               </TouchableOpacity>
             )}
           </View>
 
           {records.length === 0 ? (
             <View style={styles.emptyHistory}>
-              <Ionicons name="pulse-outline" size={40} color={Colors.mutedForeground} />
+              <Ionicons name="pulse-outline" size={40} color={colors.mutedForeground} />
               <Text style={styles.emptyTitle}>Нет записей</Text>
               <Text style={styles.emptyHint}>Добавьте первую запись стресса</Text>
             </View>
@@ -540,7 +553,7 @@ export default function StressScreen() {
 
         {/* FAB */}
         <TouchableOpacity
-          style={[styles.fabButton, { backgroundColor: Colors.stress }]}
+          style={[styles.fabButton, { backgroundColor: colors.stress }]}
           onPress={() => {
             setEditRecord(null);
             setModalVisible(true);
@@ -568,90 +581,90 @@ export default function StressScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   content: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.lg },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   iconWrapper: { width: 52, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  title: { fontSize: FontSize.xxl, fontWeight: FontWeight.bold, color: Colors.foreground },
-  subtitle: { fontSize: FontSize.sm, color: Colors.mutedForeground, marginTop: 2 },
+  title: { fontSize: FontSize.xxl, fontWeight: FontWeight.bold, color: colors.foreground },
+  subtitle: { fontSize: FontSize.sm, color: colors.mutedForeground, marginTop: 2 },
   addHeaderButton: {
     width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
-    ...Platform.select({ ios: { shadowColor: Colors.stress, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 }, android: { elevation: 6 } }),
+    ...Platform.select({ ios: { shadowColor: colors.stress, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 }, android: { elevation: 6 } }),
   },
   todayCard: {
-    backgroundColor: Colors.card, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: Colors.border, padding: Spacing.lg, marginBottom: Spacing.md,
+    backgroundColor: colors.card, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: colors.border, padding: Spacing.lg, marginBottom: Spacing.md,
     ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8 }, android: { elevation: 2 } }),
   },
-  todayLabel: { fontSize: FontSize.sm, color: Colors.mutedForeground, marginBottom: Spacing.md },
+  todayLabel: { fontSize: FontSize.sm, color: colors.mutedForeground, marginBottom: Spacing.md },
   todayContent: { flexDirection: 'row', alignItems: 'center', gap: Spacing.lg },
   stressIndicator: { width: 64, height: 64, borderRadius: 32, borderWidth: 4, alignItems: 'center', justifyContent: 'center' },
   stressIndicatorValue: { fontSize: 28, fontWeight: FontWeight.bold },
   todayValueWrapper: { flex: 1 },
-  todayValue: { fontSize: 28, fontWeight: FontWeight.bold, color: Colors.foreground },
+  todayValue: { fontSize: 28, fontWeight: FontWeight.bold, color: colors.foreground },
   todayStressLabel: { fontSize: FontSize.base, fontWeight: FontWeight.medium, marginTop: 2 },
   todayEmpty: { alignItems: 'center', gap: Spacing.sm, paddingVertical: Spacing.md },
-  todayEmptyText: { fontSize: FontSize.sm, color: Colors.mutedForeground },
+  todayEmptyText: { fontSize: FontSize.sm, color: colors.mutedForeground },
   todayAddButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, marginTop: 4 },
   todayAddText: { fontSize: FontSize.sm, fontWeight: FontWeight.medium },
   statsRow: { flexDirection: 'row', gap: Spacing.md, marginBottom: Spacing.lg },
-  statCard: { flex: 1, backgroundColor: Colors.card, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', paddingVertical: Spacing.lg, gap: 6 },
+  statCard: { flex: 1, backgroundColor: colors.card, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: colors.border, alignItems: 'center', paddingVertical: Spacing.lg, gap: 6 },
   statIconBg: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  statValue: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.foreground },
-  statLabel: { fontSize: 10, color: Colors.mutedForeground, textTransform: 'uppercase', letterSpacing: 0.3 },
-  chartCard: { backgroundColor: Colors.card, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: Colors.border, padding: Spacing.lg, marginBottom: Spacing.lg },
-  cardTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.mutedForeground, marginBottom: Spacing.md },
+  statValue: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: colors.foreground },
+  statLabel: { fontSize: 10, color: colors.mutedForeground, textTransform: 'uppercase', letterSpacing: 0.3 },
+  chartCard: { backgroundColor: colors.card, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: colors.border, padding: Spacing.lg, marginBottom: Spacing.lg },
+  cardTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: colors.mutedForeground, marginBottom: Spacing.md },
   chartContainer: { alignItems: 'center' },
   emptyChart: { height: 140, alignItems: 'center', justifyContent: 'center', gap: Spacing.sm },
-  emptyText: { fontSize: FontSize.sm, color: Colors.mutedForeground },
+  emptyText: { fontSize: FontSize.sm, color: colors.mutedForeground },
   historySection: { marginBottom: Spacing.lg },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
-  sectionTitle: { fontSize: FontSize.lg, fontWeight: FontWeight.semibold, color: Colors.foreground },
+  sectionTitle: { fontSize: FontSize.lg, fontWeight: FontWeight.semibold, color: colors.foreground },
   expandButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  expandText: { fontSize: FontSize.sm, color: Colors.primary, fontWeight: FontWeight.medium },
-  emptyHistory: { backgroundColor: Colors.card, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', paddingVertical: Spacing.xxl, gap: Spacing.sm },
-  emptyTitle: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: Colors.foreground },
-  emptyHint: { fontSize: FontSize.sm, color: Colors.mutedForeground },
+  expandText: { fontSize: FontSize.sm, color: colors.primary, fontWeight: FontWeight.medium },
+  emptyHistory: { backgroundColor: colors.card, borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: colors.border, alignItems: 'center', paddingVertical: Spacing.xxl, gap: Spacing.sm },
+  emptyTitle: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: colors.foreground },
+  emptyHint: { fontSize: FontSize.sm, color: colors.mutedForeground },
   historyList: { gap: Spacing.sm },
-  historyCard: { backgroundColor: Colors.card, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: Colors.border, overflow: 'hidden' },
+  historyCard: { backgroundColor: colors.card, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
   historyMain: { flexDirection: 'row', alignItems: 'center', padding: Spacing.md, gap: Spacing.md },
   historyIconWrapper: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   historyContent: { flex: 1 },
-  historyDate: { fontSize: FontSize.base, fontWeight: FontWeight.medium, color: Colors.foreground },
+  historyDate: { fontSize: FontSize.base, fontWeight: FontWeight.medium, color: colors.foreground },
   historyLabel: { fontSize: FontSize.xs, fontWeight: FontWeight.semibold, marginTop: 2 },
   historyStats: { alignItems: 'flex-end' },
-  historyValue: { fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: Colors.foreground },
+  historyValue: { fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: colors.foreground },
   notesPreview: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: Spacing.md, paddingBottom: Spacing.md },
-  notesText: { fontSize: FontSize.xs, color: Colors.mutedForeground, flex: 1 },
-  actionsRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: Colors.border },
+  notesText: { fontSize: FontSize.xs, color: colors.mutedForeground, flex: 1 },
+  actionsRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.border },
   actionButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12 },
   actionText: { fontSize: FontSize.sm, fontWeight: FontWeight.medium },
   fabButton: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, paddingVertical: 16, borderRadius: BorderRadius.xl,
-    ...Platform.select({ ios: { shadowColor: Colors.stress, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 }, android: { elevation: 6 } }),
+    ...Platform.select({ ios: { shadowColor: colors.stress, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 }, android: { elevation: 6 } }),
   },
   fabText: { color: '#fff', fontSize: FontSize.base, fontWeight: FontWeight.semibold },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: Colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: Spacing.lg, paddingBottom: Platform.OS === 'ios' ? 40 : Spacing.lg },
-  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: Colors.border, alignSelf: 'center', marginBottom: Spacing.lg },
-  modalTitle: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.foreground, marginBottom: Spacing.lg, textAlign: 'center' },
+  modalContent: { backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: Spacing.lg, paddingBottom: Platform.OS === 'ios' ? 40 : Spacing.lg },
+  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginBottom: Spacing.lg },
+  modalTitle: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: colors.foreground, marginBottom: Spacing.lg, textAlign: 'center' },
   inputGroup: { marginBottom: Spacing.md },
-  inputLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.foreground, marginBottom: 8 },
-  inputWrapper: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: Colors.secondary, borderRadius: BorderRadius.lg, paddingHorizontal: Spacing.md, paddingVertical: 12 },
-  input: { flex: 1, fontSize: FontSize.base, color: Colors.foreground },
+  inputLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: colors.foreground, marginBottom: 8 },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: colors.secondary, borderRadius: BorderRadius.lg, paddingHorizontal: Spacing.md, paddingVertical: 12 },
+  input: { flex: 1, fontSize: FontSize.base, color: colors.foreground },
   levelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   levelBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
   levelBadgeText: { fontSize: FontSize.xs, fontWeight: FontWeight.semibold },
   levelContainer: { gap: Spacing.sm },
   levelTrack: { flexDirection: 'row', justifyContent: 'space-between' },
   levelDot: { width: 28, height: 28, borderRadius: 14 },
-  levelDotActive: { borderWidth: 3, borderColor: Colors.foreground },
+  levelDotActive: { borderWidth: 3, borderColor: colors.foreground },
   levelLabels: { flexDirection: 'row', justifyContent: 'space-between' },
-  levelLabelText: { fontSize: FontSize.xs, color: Colors.mutedForeground },
+  levelLabelText: { fontSize: FontSize.xs, color: colors.mutedForeground },
   modalActions: { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.lg },
-  cancelButton: { flex: 1, paddingVertical: 14, borderRadius: BorderRadius.lg, backgroundColor: Colors.secondary, alignItems: 'center' },
-  cancelButtonText: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: Colors.foreground },
+  cancelButton: { flex: 1, paddingVertical: 14, borderRadius: BorderRadius.lg, backgroundColor: colors.secondary, alignItems: 'center' },
+  cancelButtonText: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: colors.foreground },
   saveButton: { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: BorderRadius.lg },
   saveButtonDisabled: { opacity: 0.6 },
   saveButtonText: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: '#fff' },

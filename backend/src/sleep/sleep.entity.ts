@@ -4,15 +4,26 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
+  ManyToOne,
+  JoinColumn,
+  Unique,
 } from 'typeorm';
+import { User } from '../users/user.entity';
 
 @Entity('sleepdata')
+@Index('idx_sleep_user_date', ['userId', 'date'])
+@Unique('uq_sleep_user_date', ['userId', 'date'])
 export class SleepData {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
   @Column({ name: 'userid' })
   userId!: string;
+
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'userid' })
+  user!: User;
 
   @Column({ type: 'date' })
   date!: string;

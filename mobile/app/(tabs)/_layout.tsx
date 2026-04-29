@@ -1,7 +1,10 @@
 // app/(tabs)/_layout.tsx
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, FontSize } from '@/constants/theme';
+import { FontSize } from '@/constants/theme';
+import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles';
+import { useTheme } from '@/context/ThemeContext';
+
 import { View, TouchableOpacity, StyleSheet, Platform, Animated } from 'react-native';
 import { useRef, useEffect } from 'react';
 import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
@@ -17,6 +20,8 @@ interface TabIconProps {
 
 // Animated Tab Icon
 function TabIcon({ name, color, focused, size = 22 }: TabIconProps) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -41,6 +46,8 @@ function TabIcon({ name, color, focused, size = 22 }: TabIconProps) {
 
 // Central Floating Button for Recommendations
 function CenterTabButton({ onPress, accessibilityState }: BottomTabBarButtonProps) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const focused = accessibilityState?.selected ?? false;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const glowAnim = useRef(new Animated.Value(0)).current;
@@ -91,13 +98,15 @@ function CenterTabButton({ onPress, accessibilityState }: BottomTabBarButtonProp
 
 
 export default function TabsLayout() {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarStyle: styles.tabBar,
-        tabBarActiveTintColor: Colors.primary,
-        tabBarInactiveTintColor: Colors.mutedForeground,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.mutedForeground,
         tabBarLabelStyle: styles.tabBarLabel,
         tabBarItemStyle: styles.tabBarItem,
       }}
@@ -191,10 +200,10 @@ export default function TabsLayout() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   tabBar: {
-    backgroundColor: Colors.card,
-    borderTopColor: Colors.border,
+    backgroundColor: colors.card,
+    borderTopColor: colors.border,
     borderTopWidth: 1,
     paddingTop: 6,
     paddingBottom: Platform.OS === 'ios' ? 28 : 10,
@@ -222,14 +231,14 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 4,
-    borderColor: Colors.card,
+    borderColor: colors.card,
     ...Platform.select({
       ios: {
-        shadowColor: Colors.primary,
+        shadowColor: colors.primary,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.35,
         shadowRadius: 10,

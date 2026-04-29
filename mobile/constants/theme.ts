@@ -82,8 +82,8 @@ export const LightColors = {
   goldMuted: 'rgba(217, 119, 6, 0.1)',
 }
 
-// Дефолт — тёмная, будет перезаписываться через контекст
-export let Colors = DarkColors
+// Deprecated: используйте useTheme().colors. Оставлено как fallback на время миграции.
+export const Colors = DarkColors
 
 export const Spacing = {
   xs: 4, sm: 8, md: 12, lg: 16,

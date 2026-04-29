@@ -1,14 +1,18 @@
-import { IsEmail, IsString, MinLength, IsOptional, IsDateString } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';  // ← добавить
+import { IsEmail, IsString, MinLength, MaxLength, Matches, IsOptional, IsDateString } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RegisterDto {
   @ApiProperty({ example: 'user@example.com', description: 'Email пользователя' })
   @IsEmail()
   email!: string;
 
-  @ApiProperty({ example: '123456', description: 'Минимум 6 символов' })
+  @ApiProperty({ example: 'Example2024', description: 'Минимум 8 символов, буквы и цифры' })
   @IsString()
-  @MinLength(6)
+  @MinLength(8, { message: 'Пароль должен содержать минимум 8 символов' })
+  @MaxLength(128, { message: 'Пароль слишком длинный' })
+  @Matches(/(?=.*[a-zA-Zа-яА-Я])(?=.*\d)/, {
+    message: 'Пароль должен содержать буквы и цифры',
+  })
   password!: string;
 
   @ApiProperty({ example: 'Иван' })

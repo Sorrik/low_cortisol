@@ -153,8 +153,9 @@ export type NutritionPayload = {
 
 
 // ── Insights ──────────────────────────────────────────────
+// timeout 35s: холодный старт ML-сервиса (train + predict + LLM) занимает ~15-20с
 export const getInsights        = (): Promise<InsightsResponse> =>
-  api.get("/insights/me").then((r) => r.data)
+  api.get("/insights/me", { timeout: 35_000 }).then((r) => r.data)
 export const getRecommendations = () =>
   api.get<{ data: Recommendation[] }>("/insights/recommendations").then(getData)
 
@@ -254,12 +255,6 @@ export function updateProfile(updates: Partial<Profile>): Promise<Profile> {
 import type {
   GamificationDto, FullStreakData, UserLevelInfo, Achievement,
 } from '@/types/health'
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
-
-function token() {
-  return typeof window !== 'undefined' ? localStorage.getItem('access_token') ?? '' : ''
-}
 
 // Вместо функции fetchGamification с fetch()
 async function fetchGamification(): Promise<GamificationDto> {

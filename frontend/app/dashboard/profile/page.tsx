@@ -13,7 +13,7 @@ import { Label }    from "@/components/ui/label"
 import { Slider }   from "@/components/ui/slider"
 import { Badge }    from "@/components/ui/badge"
 import { getProfile, updateProfile } from "@/lib/health-api"
-import { getProfile as getOnboardingProfile } from "@/lib/onboarding-api"
+import { getProfile as getOnboardingProfile, saveOnboardingStep } from "@/lib/onboarding-api"
 import type { Profile } from "@/types/health"
 import type { UserProfile } from "@/types/onboarding"
 import {
@@ -75,19 +75,7 @@ export default function ProfilePage() {
   const [stressDraft, setStressDraft]     = useState(5)
 
   const updateStressMutation = useMutation({
-    mutationFn: async (stress: number) => {
-      const token = localStorage.getItem("access_token") ?? ""
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/profile/onboarding/step/5`,
-        {
-          method:  "PATCH",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body:    JSON.stringify({ baselineStress: stress }),
-        }
-      )
-      if (!res.ok) throw new Error("Failed")
-      return res.json()
-    },
+    mutationFn: (stress: number) => saveOnboardingStep(5, { baselineStress: stress }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["user-profile"] })
       setEditingStress(false)
@@ -246,9 +234,6 @@ export default function ProfilePage() {
               <CardTitle className="text-base font-semibold text-foreground">
                 Личный профиль здоровья
               </CardTitle>
-              <Badge variant="secondary" className="text-xs">
-                Заполнено при регистрации
-              </Badge>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
               Эти данные персонализируют ML-рекомендации. Можно обновить в любое время.

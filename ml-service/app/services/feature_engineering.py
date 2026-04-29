@@ -106,7 +106,12 @@ def _trend_last3_vs_prev3(values: List[float]) -> float:
     arr = np.array(values, dtype=float)
     if arr.size < 6:
         return 0.0
-    a = np.nanmean(arr[-3:]) - np.nanmean(arr[-6:-3])
+    last3 = arr[-3:]
+    prev3 = arr[-6:-3]
+    # Если все значения в срезе NaN — np.nanmean даёт RuntimeWarning
+    if not np.any(np.isfinite(last3)) or not np.any(np.isfinite(prev3)):
+        return 0.0
+    a = np.nanmean(last3) - np.nanmean(prev3)
     return float(a) if np.isfinite(a) else 0.0
 
 
@@ -145,8 +150,9 @@ class DayAgg:
     activity_calories:      float = np.nan
     activity_intensity_avg: float = np.nan
     # Активность — ВРЕМЯ (новое)
-    evening_exercise_minutes:  float = 0.0   # минуты тренировок после 20:00
-    evening_exercise_intensity: float = np.nan  # интенсивность вечерней тренировки
+    evening_exercise_minutes:    float = 0.0      # минуты тренировок после 20:00
+    evening_exercise_intensity:  float = np.nan   # интенсивность вечерней тренировки
+    evening_exercise_start_hour: float = np.nan   # час начала последней вечерней тренировки
     # Вода
     water_ml:               float = np.nan
     # Питание — макронутриенты
@@ -304,6 +310,10 @@ def _build_daily_table(data: HealthData, window_dates: List[date]) -> Dict[date,
                 tmp[d]["evening_minutes"]   += minutes
                 tmp[d]["evening_int_sum"]   += _intensity_to_num(intens)
                 tmp[d]["evening_int_cnt"]   += 1.0
+                # Запоминаем час последней вечерней тренировки
+                cur_start = tmp[d].get("evening_start_hour", np.nan)
+                if not np.isfinite(cur_start) or act_hour > cur_start:
+                    tmp[d]["evening_start_hour"] = act_hour
 
         for d, v in tmp.items():
             table[d].activity_minutes        = float(v["minutes"]) if v["minutes"] > 0 else np.nan
@@ -314,6 +324,8 @@ def _build_daily_table(data: HealthData, window_dates: List[date]) -> Dict[date,
                 table[d].evening_exercise_intensity = float(
                     v["evening_int_sum"] / v["evening_int_cnt"]
                 )
+            if np.isfinite(v.get("evening_start_hour", np.nan)):
+                table[d].evening_exercise_start_hour = float(v["evening_start_hour"])
 
     return table
 
@@ -332,7 +344,7 @@ def _lag(values: List[float], k: int) -> float:
 # Main API
 # ─────────────────────────────────────────────────────────────
 
-def build_features(data: HealthData) -> Dict[str, float]:
+def build_features(data: HealthData, user_profile: Optional[Any] = None) -> Dict[str, float]:
     """
     Вектор фичей. Добавлены по сравнению с v1:
     - Временны́е фичи: bed_hour, wake_hour, sleep_regularity_std
@@ -367,8 +379,9 @@ def build_features(data: HealthData) -> Dict[str, float]:
     act_min   = [daily_main[d].activity_minutes       for d in window_main]
     act_cal   = [daily_main[d].activity_calories      for d in window_main]
     act_int   = [daily_main[d].activity_intensity_avg for d in window_main]
-    eve_min   = [daily_main[d].evening_exercise_minutes   for d in window_main]
-    eve_int   = [daily_main[d].evening_exercise_intensity for d in window_main]
+    eve_min   = [daily_main[d].evening_exercise_minutes    for d in window_main]
+    eve_int   = [daily_main[d].evening_exercise_intensity  for d in window_main]
+    eve_start = [daily_main[d].evening_exercise_start_hour for d in window_main]
 
     water     = [daily_main[d].water_ml for d in window_main]
 
@@ -479,9 +492,10 @@ def build_features(data: HealthData) -> Dict[str, float]:
     ) else 0.0
 
     # ── Активность — ВРЕМЯ (новые фичи) ──────────────────────
-    eve_min_t  = _lag(eve_min, 0)   # вечерняя тренировка вчера
-    eve_min_t1 = _lag(eve_min, 1)   # позавчера
-    eve_int_t  = _lag(eve_int, 0)
+    eve_min_t   = _lag(eve_min,   0)   # вечерняя тренировка вчера
+    eve_min_t1  = _lag(eve_min,   1)   # позавчера
+    eve_int_t   = _lag(eve_int,   0)
+    eve_start_t = _lag(eve_start, 0)   # час начала последней вечерней тренировки вчера
 
     f["evening_exercise_minutes_t"]  = eve_min_t
     f["evening_exercise_minutes_t1"] = eve_min_t1
@@ -494,6 +508,28 @@ def build_features(data: HealthData) -> Dict[str, float]:
 
     # Средняя вечерняя нагрузка за 14 дней
     f["evening_exercise_mean_14d"] = _nanmean([v for v in eve_min if v > 0] or [0.0])
+
+    # Часов от окончания тренировки до отхода ко сну
+    # Тренировка за < 2ч до сна → кортизол не успевает снизиться
+    if (np.isfinite(eve_start_t) and eve_start_t > 0
+            and np.isfinite(bed_t) and bed_t > 0
+            and eve_min_t > 0):
+        # Примерное время окончания = start_hour + duration/60
+        eve_end_t = eve_start_t + eve_min_t / 60.0
+        if bed_t >= eve_end_t:
+            f["exercise_hours_before_bed"] = bed_t - eve_end_t
+        else:
+            # тренировка после полуночи или уснул до окончания — редкий случай
+            f["exercise_hours_before_bed"] = max(0.0, (24.0 - eve_end_t) + bed_t)
+    else:
+        f["exercise_hours_before_bed"] = 0.0
+
+    # Флаг: тренировка слишком близко ко сну (< 2 часов) и интенсивная
+    f["vigorous_too_close_to_bed"] = 1.0 if (
+        f["exercise_hours_before_bed"] > 0
+        and f["exercise_hours_before_bed"] < 2.0
+        and np.isfinite(eve_int_t) and eve_int_t >= 2.0
+    ) else 0.0
 
     # ── Вода ─────────────────────────────────────────────────
     f["water_ml_mean"]           = _nanmean(water)
@@ -604,6 +640,46 @@ def build_features(data: HealthData) -> Dict[str, float]:
     f["water_vs_norm"]    = f["water_ml_mean"]        - water_n_val
     f["calories_vs_norm"] = f["calories_mean"]        - cal_n_val
     f["protein_vs_norm"]  = f["protein_mean"]         - prot_n_val
+
+    # ── Персональные цели (из user_profile) ──────────────────
+    # Фичи vs ЗАЯВЛЕННАЯ ЦЕЛЬ пользователя, а не медиана истории.
+    # Это отличает "человек спит меньше своего обычного" от
+    # "человек спит меньше своей целевой нормы".
+    if user_profile is not None:
+        # Сон vs личная цель (sleepGoalHours)
+        sleep_goal = _as_float(getattr(user_profile, "sleepGoalHours", None),
+                                default=SLEEP_TARGET_HOURS)
+        if sleep_goal > 0:
+            f["sleep_vs_personal_goal"] = f["sleep_duration_mean"] - sleep_goal
+        else:
+            f["sleep_vs_personal_goal"] = 0.0
+
+        # Стресс vs личный базовый уровень (baselineStress)
+        stress_baseline = _as_float(getattr(user_profile, "baselineStress", None), default=5.0)
+        if stress_baseline > 0:
+            f["stress_vs_personal_baseline"] = f["stress_mean"] - stress_baseline
+        else:
+            f["stress_vs_personal_baseline"] = 0.0
+
+        # Хронотип: сова = 1, жаворонок = -1, гибкий = 0
+        chronotype = str(getattr(user_profile, "chronotype", "") or "").lower()
+        f["chronotype_flag"] = (
+            1.0  if "night_owl" in chronotype else
+            -1.0 if "early_bird" in chronotype else
+            0.0
+        )
+
+        # Неделя: целевые минуты тренировок пользователя / 7 → дневная цель
+        weekly_min = _as_float(getattr(user_profile, "weeklyTrainingMinutes", None), default=0.0)
+        daily_goal = weekly_min / 7.0
+        f["activity_vs_personal_goal"] = (
+            f["activity_minutes_mean"] - daily_goal if daily_goal > 0 else 0.0
+        )
+    else:
+        f["sleep_vs_personal_goal"]     = 0.0
+        f["stress_vs_personal_baseline"] = 0.0
+        f["chronotype_flag"]             = 0.0
+        f["activity_vs_personal_goal"]  = 0.0
 
     # ── Комбо-взаимодействия — расширенные ───────────────────
     sleep_ok   = 1.0 if (f["sleep_duration_t"] >= SLEEP_OPTIMAL_MIN

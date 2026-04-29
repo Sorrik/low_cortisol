@@ -8,6 +8,7 @@ import Link from "next/link"
 import { Eye, EyeOff, Loader2, ArrowRight } from "lucide-react"
 
 import api from "@/lib/api"
+import { setAuth } from "@/lib/auth-store"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -61,15 +62,27 @@ export function RegisterForm() {
         email: data.email,
         password: data.password,
       })
-      localStorage.setItem("access_token", loginResponse.data.access_token)
-      localStorage.setItem("user", JSON.stringify(loginResponse.data.user))
+      setAuth(loginResponse.data.access_token, loginResponse.data.user)
       router.push("/onboarding")
     } catch (err) {
-      const axiosError = err as AxiosError
-      if (axiosError.response?.status === 409) {
+      const axiosError = err as AxiosError<{ message?: string | string[] }>
+      const status = axiosError.response?.status
+      const body = axiosError.response?.data
+      const serverMsg = Array.isArray(body?.message)
+        ? body.message.join(". ")
+        : body?.message
+
+      if (status === 409) {
         setError("Пользователь с таким email уже существует")
+      } else if (status === 400 && serverMsg) {
+        setError(serverMsg)
+      } else if (!axiosError.response) {
+        setError(
+          `Не удалось связаться с сервером (${axiosError.code ?? "NETWORK"}). ` +
+          `Проверь, что backend поднят на ${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000"}.`,
+        )
       } else {
-        setError("Ошибка регистрации. Попробуйте снова")
+        setError(serverMsg || "Ошибка регистрации. Попробуйте снова")
       }
     }
   }
@@ -192,16 +205,19 @@ export function RegisterForm() {
                   <Input
                     id="password"
                     type={showPassword ? "text" : "password"}
-                    placeholder="Минимум 6 символов"
+                    placeholder="Минимум 8 символов, буквы и цифры"
                     autoComplete="new-password"
                     aria-invalid={errors.password ? "true" : "false"}
                     className={`${inputClasses} pr-12`}
                     {...register("password", {
                       required: "Пароль обязателен",
                       minLength: {
-                        value: 6,
-                        message: "Минимум 6 символов",
+                        value: 8,
+                        message: "Минимум 8 символов",
                       },
+                      validate: (v) =>
+                        /(?=.*[a-zA-Zа-яА-Я])(?=.*\d)/.test(v) ||
+                        "Пароль должен содержать буквы и цифры",
                     })}
                   />
                   <button

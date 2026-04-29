@@ -54,8 +54,9 @@ function todayStr(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
+// Линейное 1-5 → 1-10: scale(1)=1, scale(3)=6, scale(5)=10
 function scale5to10(v: number): number {
-  return Math.round((v / 5) * 10)
+  return Math.round(1 + (v - 1) * (9 / 4))
 }
 
 // ── Types ─────────────────────────────────────────────────────
@@ -103,21 +104,24 @@ const sleepSchema = z.object({
   { message: "Время пробуждения должно быть минимум на 1 час позже отхода ко сну", path: ["wakeTime"] }
 )
 
-// Питание — только тип и заметки, БЖУ берём из FoodSearch entries
+// Питание — тип, время и заметки, БЖУ берём из FoodSearch entries
 const nutritionSchema = z.object({
   mealType: z.enum(["breakfast", "lunch", "dinner", "snack"], {
     errorMap: () => ({ message: "Выберите приём пищи" }),
   }),
+  time:  z.string().regex(/^\d{2}:\d{2}$/).optional(),
   notes: z.string().optional(),
 })
 
 const moodSchema = z.object({
-  value: z.coerce.number().min(1).max(5),
-  notes: z.string().optional(),
+  value:    z.coerce.number().min(1).max(5),
+  emotions: z.string().optional(),
+  notes:    z.string().optional(),
 })
 
 const stressSchema = z.object({
   level: z.coerce.number().min(1).max(10),
+  time:  z.string().regex(/^\d{2}:\d{2}$/).optional(),
   notes: z.string().optional(),
 })
 
@@ -148,9 +152,9 @@ function getSchema(metric: MetricType) {
 function getDefaults(metric: MetricType): Record<string, unknown> {
   switch (metric) {
     case "sleep":    return { bedTime: "23:00", wakeTime: "07:00", quality: 7, interruptions: 0, notes: "" }
-    case "food":     return { mealType: "lunch", notes: "" }
-    case "mood":     return { value: 3, notes: "" }
-    case "stress":   return { level: 5, notes: "" }
+    case "food":     return { mealType: "lunch", time: "", notes: "" }
+    case "mood":     return { value: 3, emotions: "", notes: "" }
+    case "stress":   return { level: 5, time: "", notes: "" }
     case "activity": return { type: "walk", time: "", duration: 30, intensity: "moderate", steps: 0, description: "" }
     case "water":    return { glasses: 4 }
   }
@@ -179,19 +183,23 @@ function toApiPayload(
         notes:         (data.notes as string | undefined) ?? "",
       } satisfies SleepPayload
 
-    case "mood":
+    case "mood": {
+      const emotionsStr = (data.emotions as string | undefined)?.trim()
       return {
         date,
         time:      nowTime(),
         moodScore: scale5to10(data.value as number),
+        ...(emotionsStr ? { emotions: emotionsStr } : {}),
         notes:     (data.notes as string | undefined) ?? "",
       } satisfies MoodPayload
+    }
 
     case "stress": {
       const stressNotes = (data.notes as string | undefined)?.trim()
+      const stressTime  = (data.time as string | undefined)?.trim()
       return {
         date,
-        time:  nowTime(),
+        time:  stressTime || nowTime(),   // время из формы, иначе текущее
         level: data.level as number,
         ...(stressNotes ? { cause: stressNotes } : {}),
       } satisfies StressPayload
@@ -232,10 +240,11 @@ function toApiPayload(
         : "—"
       const userNotes   = (data.notes as string | undefined)?.trim() ?? ""
       const description = userNotes ? `${autoDescription}. ${userNotes}` : autoDescription
+      const mealTime    = (data.time as string | undefined)?.trim()
 
       return {
         date,
-        time:         nowTime(),
+        time:         mealTime || nowTime(),  // время из формы, иначе текущее
         mealType:     (data.mealType as NutritionPayload["mealType"]) ?? "lunch",
         description,
         calories:     totals.kcal,
@@ -484,23 +493,35 @@ function MetricForm({
       {/* ── Food ── */}
       {metric === "food" && (
         <>
-          <div className="flex flex-col gap-2">
-            <Label className="text-secondary-foreground">Приём пищи</Label>
-            <Controller name="mealType" control={control}
-              render={({ field }) => (
-                <Select value={field.value as string} onValueChange={field.onChange}>
-                  <SelectTrigger className="h-11 border-border bg-input text-foreground">
-                    <SelectValue placeholder="Выберите приём пищи" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="breakfast">Завтрак</SelectItem>
-                    <SelectItem value="lunch">Обед</SelectItem>
-                    <SelectItem value="dinner">Ужин</SelectItem>
-                    <SelectItem value="snack">Перекус</SelectItem>
-                  </SelectContent>
-                </Select>
-              )} />
-            <FieldError msg={errors.mealType?.message as string} />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-2">
+              <Label className="text-secondary-foreground">Приём пищи</Label>
+              <Controller name="mealType" control={control}
+                render={({ field }) => (
+                  <Select value={field.value as string} onValueChange={field.onChange}>
+                    <SelectTrigger className="h-11 border-border bg-input text-foreground">
+                      <SelectValue placeholder="Выберите приём пищи" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="breakfast">Завтрак</SelectItem>
+                      <SelectItem value="lunch">Обед</SelectItem>
+                      <SelectItem value="dinner">Ужин</SelectItem>
+                      <SelectItem value="snack">Перекус</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )} />
+              <FieldError msg={errors.mealType?.message as string} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label className="text-secondary-foreground">
+                Время <span className="text-muted-foreground text-xs">(необязательно)</span>
+              </Label>
+              <Input type="time" className="h-11 border-border bg-input text-foreground"
+                {...register("time")} />
+              <p className="text-xs text-muted-foreground">
+                Еда после 21:00 влияет на кортизол и сон
+              </p>
+            </div>
           </div>
 
           <FoodSearch entries={mealEntries} onChange={onMealEntriesChange} />
@@ -531,6 +552,14 @@ function MetricForm({
               )} />
           </div>
           <div className="flex flex-col gap-2">
+            <Label className="text-secondary-foreground">
+              Эмоции <span className="text-muted-foreground text-xs">(необязательно)</span>
+            </Label>
+            <Textarea className="border-border bg-input text-foreground" rows={2}
+              placeholder="через запятую: тревога, усталость, радость, раздражение..."
+              {...register("emotions")} />
+          </div>
+          <div className="flex flex-col gap-2">
             <Label className="text-secondary-foreground">Заметки</Label>
             <Textarea className="border-border bg-input text-foreground"
               placeholder="Что повлияло на настроение..." {...register("notes")} />
@@ -556,6 +585,16 @@ function MetricForm({
                   </div>
                 </div>
               )} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label className="text-secondary-foreground">
+              Время <span className="text-muted-foreground text-xs">(необязательно)</span>
+            </Label>
+            <Input type="time" className="h-11 border-border bg-input text-foreground"
+              {...register("time")} />
+            <p className="text-xs text-muted-foreground">
+              Укажите время — система учтёт циркадный паттерн стресса
+            </p>
           </div>
           <div className="flex flex-col gap-2">
             <Label className="text-secondary-foreground">Заметки</Label>

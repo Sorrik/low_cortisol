@@ -117,8 +117,13 @@ export class AnomalyDetectionService {
       return { anomalies: [], gapDays: 0, dataQuality: 0 }
     }
 
-    const lastDate  = new Date(Math.max(...allDates.map(d => new Date(d).getTime())))
-    const gapDays   = Math.floor((today.getTime() - lastDate.getTime()) / 86400000)
+    // Сравниваем по ISO-дате, а не по timestamp — чтобы не было погрешности ±1 день
+    const todayStr   = today.toISOString().split('T')[0]
+    const lastDateStr = allDates.reduce((max, d) => d.slice(0, 10) > max ? d.slice(0, 10) : max, '')
+    const lastDate   = new Date(lastDateStr)
+    const gapDays    = Math.floor(
+      (new Date(todayStr).getTime() - new Date(lastDateStr).getTime()) / 86400000
+    )
 
     if (gapDays >= 2) {
       const severity: AnomalySeverity = gapDays >= 5 ? 'critical' : 'warning'

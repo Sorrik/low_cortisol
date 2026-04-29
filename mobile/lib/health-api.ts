@@ -1,6 +1,5 @@
 // mobile/lib/health-api.ts
 import { api } from './api'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import type {
   SleepRecord, StressRecord, MoodRecord, ActivityRecord,
   WaterRecord, NutritionRecord, InsightsResponse, GamificationDto,
@@ -91,6 +90,7 @@ type BackendActivityPayload = {
   durationMinutes: number
   intensity: 'light' | 'moderate' | 'vigorous'
   caloriesBurned?: number
+  steps?: number
   notes?: string
 }
 
@@ -106,6 +106,7 @@ function normalizeActivityPayload(data: any): BackendActivityPayload {
       : data.calories != null
         ? { caloriesBurned: data.calories }
         : {}),
+    ...(data.steps != null ? { steps: data.steps } : {}),
     ...(data.notes ? { notes: data.notes } : {}),
   }
 }
@@ -146,6 +147,78 @@ export const createActivity  = (data: any) => api.post('/activity',  normalizeAc
 export const createWater     = (data: any) => api.post('/water',     data).then(r => r.data)
 export const createNutrition = (data: any) => api.post('/nutrition', data).then(r => r.data)
 
+// ── Food vision (фото → gpt-4o → FatSecret) ───────────────
+export interface AnalyzedFoodItem {
+  name: string
+  matchedFoodName?: string
+  grams: number
+  confidence: number
+  matched: boolean
+  calories: number
+  proteinGrams: number
+  carbsGrams: number
+  fatGrams: number
+}
+
+export interface AnalyzePhotoResponse {
+  items: AnalyzedFoodItem[]
+  overall_confidence: number
+  message?: string
+}
+
+export const analyzeFoodPhoto = (imageBase64: string, mimeType = 'image/jpeg') =>
+  api
+    .post<AnalyzePhotoResponse>('/nutrition/analyze-photo', { imageBase64, mimeType })
+    .then(r => r.data)
+
+// ── Voice → form ──────────────────────────────────────────
+export type VoiceContext = 'mood' | 'sleep' | 'food' | 'water'
+
+export interface VoiceResponse<T = Record<string, any>> {
+  transcript: string
+  fields: T & { confidence: number }
+}
+
+export async function voiceToForm<T = Record<string, any>>(
+  audioUri: string,
+  context: VoiceContext,
+  filename = 'audio.m4a',
+  mimeType = 'audio/m4a',
+): Promise<VoiceResponse<T>> {
+  // axios+RN+FormData ломается на Network Error. Используем fetch напрямую —
+  // RN fetch корректно обрабатывает multipart с file-объектом { uri, name, type }.
+  const { useAuthStore } = await import('@/store/auth.store')
+  const token = useAuthStore.getState().token
+  const baseURL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')
+
+  const form = new FormData()
+  form.append('context', context)
+  form.append('audio', { uri: audioUri, name: filename, type: mimeType } as any)
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 120_000)
+
+  try {
+    const res = await fetch(`${baseURL}/ai/voice-to-form`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        Accept: 'application/json',
+        // Content-Type не ставим — RN fetch сам выставит multipart/form-data с boundary.
+      },
+      body: form,
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`voice-to-form ${res.status}: ${text || res.statusText}`)
+    }
+    return (await res.json()) as VoiceResponse<T>
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 // ── PATCH ─────────────────────────────────────────────────
 export const updateSleep     = (id: string, d: any) => api.patch(`/sleep/${id}`,     d).then(r => r.data)
 export const updateStress    = (id: string, d: any) => api.patch(`/stress/${id}`,    d).then(r => r.data)
@@ -155,42 +228,61 @@ export const updateWater     = (id: string, d: any) => api.patch(`/water/${id}`,
 export const updateNutrition = (id: string, d: any) => api.patch(`/nutrition/${id}`, d).then(r => r.data)
 
 // ── Auth ──────────────────────────────────────────────────
+type AuthResponse = { access_token: string; refresh_token: string; user: { id: string } }
+
 export const login = (email: string, password: string) =>
-  api.post<{ access_token: string; userId: string }>('/auth/login', { email, password }).then(r => r.data)
+  api.post<AuthResponse>('/auth/login', { email, password })
+    .then(r => ({
+      access_token:  r.data.access_token,
+      refresh_token: r.data.refresh_token,
+      userId:        r.data.user.id,
+    }))
+
 export const register = (
-  email: string, 
-  password: string, 
-  firstName: string, 
-  lastName: string
+  email: string,
+  password: string,
+  firstName: string,
+  lastName: string,
 ) =>
-  api.post<{ access_token: string; userId: string }>('/auth/register', {
+  api.post<AuthResponse>('/auth/register', {
     email,
     password,
     firstName,
     lastName,
-  }).then(r => r.data)
+  }).then(r => ({
+    access_token:  r.data.access_token,
+    refresh_token: r.data.refresh_token,
+    userId:        r.data.user.id,
+  }))
 
-// ── Profile (AsyncStorage) ────────────────────────────────
-const PROFILE_KEY = 'user_profile'
+export const logoutApi = () => api.post('/auth/logout').catch(() => {})
 
-const defaultProfile = (): Profile => ({
-  firstName: '', lastName: '', email: '', birthDate: '',
-})
+// ── Profile (server) ─────────────────────────────────────
 
 export async function getProfile(): Promise<Profile> {
-  try {
-    const raw = await AsyncStorage.getItem(PROFILE_KEY)
-    return raw ? { ...defaultProfile(), ...JSON.parse(raw) } : defaultProfile()
-  } catch {
-    return defaultProfile()
+  const res = await api.get('/users/me')
+  const u = res.data
+  return {
+    firstName: u.firstName ?? '',
+    lastName:  u.lastName  ?? '',
+    email:     u.email     ?? '',
+    birthDate: u.dateOfBirth ? String(u.dateOfBirth).slice(0, 10) : '',
   }
 }
 
 export async function updateProfile(updates: Partial<Profile>): Promise<Profile> {
-  const current = await getProfile()
-  const next = { ...current, ...updates }
-  await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(next))
-  return next
+  const body: Record<string, any> = {}
+  if (updates.firstName !== undefined) body.firstName   = updates.firstName
+  if (updates.lastName  !== undefined) body.lastName    = updates.lastName
+  if (updates.birthDate !== undefined) body.dateOfBirth = updates.birthDate || null
+  const res = await api.patch('/users/me', body)
+  const u = res.data
+  return {
+    firstName: u.firstName ?? '',
+    lastName:  u.lastName  ?? '',
+    email:     u.email     ?? '',
+    birthDate: u.dateOfBirth ? String(u.dateOfBirth).slice(0, 10) : '',
+  }
 }
 
 // ── Gamification ──────────────────────────────────────────

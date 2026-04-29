@@ -17,6 +17,19 @@ import { X } from 'lucide-react-native';
 import Slider from '@react-native-community/slider';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { createSleep } from '@/lib/health-api';
+import { VoiceInputButton } from '@/components/ui/VoiceInputButton';
+
+function parseHmm(s?: string | null): Date | null {
+  if (!s) return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mm = Number(m[2]);
+  if (h < 0 || h > 23 || mm < 0 || mm > 59) return null;
+  const d = new Date();
+  d.setHours(h, mm, 0, 0);
+  return d;
+}
 
 function todayStr(): string {
   const d = new Date();
@@ -93,6 +106,35 @@ export default function AddSleepModal() {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.field}>
+          <VoiceInputButton
+            context="sleep"
+            hint='Пример: «лёг в одиннадцать, встал в семь, спал нормально, просыпался раз»'
+            onResult={(r) => {
+              const f = r.fields as {
+                bed_time?: string | null
+                wake_time?: string | null
+                quality?: number | null
+                interruptions?: number | null
+                notes?: string
+              }
+              const bd = parseHmm(f.bed_time);
+              if (bd) setBedTime(bd);
+              const wd = parseHmm(f.wake_time);
+              if (wd) setWakeTime(wd);
+              if (typeof f.quality === 'number') {
+                setQuality(Math.max(1, Math.min(10, Math.round(f.quality))));
+              }
+              if (typeof f.interruptions === 'number') {
+                setInterruptions(String(Math.max(0, f.interruptions)));
+              }
+              if (f.notes) {
+                setNotes((prev) => (prev ? `${prev}\n${f.notes}` : f.notes!));
+              }
+            }}
+          />
+        </View>
+
         <View style={styles.row}>
           <View style={styles.fieldHalf}>
             <Text style={styles.label}>Отход ко сну</Text>

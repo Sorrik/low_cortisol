@@ -18,8 +18,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Rect, Text as SvgText } from 'react-native-svg';
-import { Colors, Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles';
+import { useTheme } from '@/context/ThemeContext';
+
 import { getActivityRecords, addActivityRecord, updateActivityRecord, deleteActivityRecord } from '@/lib/health-api';
+import { usePedometer } from '@/hooks/usePedometer';
 import type { ActivityRecord } from '@/types/health';
 
 const CHART_HEIGHT = 180;
@@ -65,6 +69,8 @@ function toLocalDateStr(date: Date): string {
 
 // Animated Card
 function AnimatedCard({ children, index, style }: { children: React.ReactNode; index: number; style?: any }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(20)).current;
 
@@ -94,6 +100,8 @@ function HistoryItem({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const [showActions, setShowActions] = useState(false);
   const typeConfig = TYPE_CONFIG[record.type ?? 'other'] || TYPE_CONFIG.other;
@@ -131,7 +139,7 @@ function HistoryItem({
               <Text style={styles.historyDuration}>{record.duration}м</Text>
               {record.steps ? (
                 <View style={styles.stepsBadge}>
-                  <Ionicons name="footsteps" size={10} color={Colors.mutedForeground} />
+                  <Ionicons name="footsteps" size={10} color={colors.mutedForeground} />
                   <Text style={styles.historySteps}>{record.steps.toLocaleString()}</Text>
                 </View>
               ) : null}
@@ -141,12 +149,12 @@ function HistoryItem({
           {showActions && (
             <View style={styles.actionsRow}>
               <TouchableOpacity style={styles.actionButton} onPress={onEdit} activeOpacity={0.7}>
-                <Ionicons name="pencil" size={16} color={Colors.primary} />
-                <Text style={[styles.actionText, { color: Colors.primary }]}>Изменить</Text>
+                <Ionicons name="pencil" size={16} color={colors.primary} />
+                <Text style={[styles.actionText, { color: colors.primary }]}>Изменить</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionButton} onPress={onDelete} activeOpacity={0.7}>
-                <Ionicons name="trash" size={16} color={Colors.destructive} />
-                <Text style={[styles.actionText, { color: Colors.destructive }]}>Удалить</Text>
+                <Ionicons name="trash" size={16} color={colors.destructive} />
+                <Text style={[styles.actionText, { color: colors.destructive }]}>Удалить</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -158,6 +166,8 @@ function HistoryItem({
 
 // Type Selector
 function TypeSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   return (
     <View style={styles.typeGrid}>
       {Object.entries(TYPE_CONFIG).map(([key, config]) => (
@@ -167,7 +177,7 @@ function TypeSelector({ value, onChange }: { value: string; onChange: (v: string
           onPress={() => onChange(key)}
           activeOpacity={0.7}
         >
-          <Ionicons name={config.icon} size={20} color={value === key ? config.color : Colors.mutedForeground} />
+          <Ionicons name={config.icon} size={20} color={value === key ? config.color : colors.mutedForeground} />
           <Text style={[styles.typeItemText, value === key && { color: config.color }]}>{config.label}</Text>
         </TouchableOpacity>
       ))}
@@ -189,14 +199,25 @@ function ActivityModal({
   editRecord: ActivityRecord | null;
   isLoading: boolean;
 }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const [date, setDate] = useState(toLocalDateStr(new Date()));
   const [type, setType] = useState('walking');
   const [duration, setDuration] = useState('30');
   const [steps, setSteps] = useState('');
   const [calories, setCalories] = useState('');
 
+  const { steps: pedometerSteps, isGranted, refresh: refreshPedometer } = usePedometer();
+
   const slideAnim = useRef(new Animated.Value(400)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  // Refresh pedometer when modal opens for a new record
+  useEffect(() => {
+    if (visible && !editRecord && isGranted) {
+      refreshPedometer();
+    }
+  }, [visible, editRecord, isGranted, refreshPedometer]);
 
   useEffect(() => {
     if (visible) {
@@ -248,13 +269,13 @@ function ActivityModal({
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Дата</Text>
               <View style={styles.inputWrapper}>
-                <Ionicons name="calendar" size={18} color={Colors.mutedForeground} />
+                <Ionicons name="calendar" size={18} color={colors.mutedForeground} />
                 <TextInput
                   style={styles.input}
                   value={date}
                   onChangeText={setDate}
                   placeholder="YYYY-MM-DD"
-                  placeholderTextColor={Colors.mutedForeground}
+                  placeholderTextColor={colors.mutedForeground}
                 />
               </View>
             </View>
@@ -265,19 +286,36 @@ function ActivityModal({
               <TypeSelector value={type} onChange={setType} />
             </View>
 
+            {/* Pedometer banner */}
+            {!editRecord && isGranted && pedometerSteps > 0 && (
+              <TouchableOpacity
+                style={styles.pedometerBanner}
+                onPress={() => setSteps(String(pedometerSteps))}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="footsteps" size={16} color={colors.primary} />
+                <Text style={styles.pedometerText}>
+                  {pedometerSteps.toLocaleString('ru-RU')} шагов сегодня
+                </Text>
+                <View style={styles.pedometerApply}>
+                  <Text style={styles.pedometerApplyText}>Применить</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
             {/* Duration & Steps */}
             <View style={styles.rowInputs}>
               <View style={[styles.inputGroup, { flex: 1 }]}>
                 <Text style={styles.inputLabel}>Длительность</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="time" size={18} color={Colors.activity} />
+                  <Ionicons name="time" size={18} color={colors.activity} />
                   <TextInput
                     style={styles.input}
                     value={duration}
                     onChangeText={setDuration}
                     placeholder="30"
                     keyboardType="numeric"
-                    placeholderTextColor={Colors.mutedForeground}
+                    placeholderTextColor={colors.mutedForeground}
                   />
                   <Text style={styles.inputSuffix}>мин</Text>
                 </View>
@@ -285,14 +323,14 @@ function ActivityModal({
               <View style={[styles.inputGroup, { flex: 1 }]}>
                 <Text style={styles.inputLabel}>Шаги</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="footsteps" size={18} color={Colors.primary} />
+                  <Ionicons name="footsteps" size={18} color={colors.primary} />
                   <TextInput
                     style={styles.input}
                     value={steps}
                     onChangeText={setSteps}
                     placeholder="0"
                     keyboardType="numeric"
-                    placeholderTextColor={Colors.mutedForeground}
+                    placeholderTextColor={colors.mutedForeground}
                   />
                 </View>
               </View>
@@ -309,7 +347,7 @@ function ActivityModal({
                   onChangeText={setCalories}
                   placeholder="0"
                   keyboardType="numeric"
-                  placeholderTextColor={Colors.mutedForeground}
+                  placeholderTextColor={colors.mutedForeground}
                 />
                 <Text style={styles.inputSuffix}>ккал</Text>
               </View>
@@ -344,6 +382,8 @@ function ActivityModal({
 }
 
 export default function ActivityScreen() {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -437,13 +477,13 @@ export default function ActivityScreen() {
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
         {/* Header */}
         <Animated.View style={[styles.header, { opacity: headerFade, transform: [{ translateY: headerTranslate }] }]}>
           <View style={styles.headerLeft}>
             <View style={styles.iconWrapper}>
-              <Ionicons name="flame" size={26} color={Colors.activity} />
+              <Ionicons name="flame" size={26} color={colors.activity} />
             </View>
             <View>
               <Text style={styles.title}>Активность</Text>
@@ -467,7 +507,7 @@ export default function ActivityScreen() {
           <View style={styles.todayHeader}>
             <Text style={styles.todayLabel}>Сегодня</Text>
             <View style={styles.todayBadge}>
-              <Ionicons name="flash" size={12} color={Colors.activity} />
+              <Ionicons name="flash" size={12} color={colors.activity} />
               <Text style={styles.todayBadgeText}>{todayRecord.length} активностей</Text>
             </View>
           </View>
@@ -489,7 +529,7 @@ export default function ActivityScreen() {
             </View>
           ) : (
             <View style={styles.todayEmpty}>
-              <Ionicons name="fitness-outline" size={32} color={Colors.mutedForeground} />
+              <Ionicons name="fitness-outline" size={32} color={colors.mutedForeground} />
               <Text style={styles.todayEmptyText}>Нет активностей сегодня</Text>
               <TouchableOpacity
                 style={styles.todayAddButton}
@@ -499,7 +539,7 @@ export default function ActivityScreen() {
                 }}
                 activeOpacity={0.8}
               >
-                <Ionicons name="add" size={16} color={Colors.activity} />
+                <Ionicons name="add" size={16} color={colors.activity} />
                 <Text style={styles.todayAddText}>Добавить</Text>
               </TouchableOpacity>
             </View>
@@ -509,12 +549,12 @@ export default function ActivityScreen() {
         {/* Stats row */}
         <View style={styles.statsRow}>
           <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <Ionicons name="time" size={20} color={Colors.activity} />
+            <Ionicons name="time" size={20} color={colors.activity} />
             <Text style={styles.statValue}>{weeklyTotal}м</Text>
             <Text style={styles.statLabel}>за 7 дней</Text>
           </AnimatedCard>
           <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <Ionicons name="footsteps" size={20} color={Colors.primary} />
+            <Ionicons name="footsteps" size={20} color={colors.primary} />
             <Text style={styles.statValue}>{weeklySteps.toLocaleString()}</Text>
             <Text style={styles.statLabel}>шагов</Text>
           </AnimatedCard>
@@ -530,7 +570,7 @@ export default function ActivityScreen() {
           <Text style={styles.cardTitle}>Активность за 7 дней</Text>
           {chartData.length === 0 ? (
             <View style={styles.emptyChart}>
-              <Ionicons name="bar-chart-outline" size={32} color={Colors.mutedForeground} />
+              <Ionicons name="bar-chart-outline" size={32} color={colors.mutedForeground} />
               <Text style={styles.emptyText}>Нет данных за последние 7 дней</Text>
             </View>
           ) : (
@@ -544,11 +584,11 @@ export default function ActivityScreen() {
                   const y = CHART_HEIGHT - 35 - barHeight;
                   return (
                     <React.Fragment key={i}>
-                      <Rect x={x} y={y} width={barWidth} height={barHeight} rx={8} fill={Colors.activity} />
-                      <SvgText x={x + barWidth / 2} y={CHART_HEIGHT - 12} fontSize={10} fill={Colors.mutedForeground} textAnchor="middle">
+                      <Rect x={x} y={y} width={barWidth} height={barHeight} rx={8} fill={colors.activity} />
+                      <SvgText x={x + barWidth / 2} y={CHART_HEIGHT - 12} fontSize={10} fill={colors.mutedForeground} textAnchor="middle">
                         {d.date}
                       </SvgText>
-                      <SvgText x={x + barWidth / 2} y={y - 8} fontSize={11} fill={Colors.foreground} fontWeight="600" textAnchor="middle">
+                      <SvgText x={x + barWidth / 2} y={y - 8} fontSize={11} fill={colors.foreground} fontWeight="600" textAnchor="middle">
                         {d.duration}м
                       </SvgText>
                     </React.Fragment>
@@ -566,14 +606,14 @@ export default function ActivityScreen() {
             {hasMoreRecords && (
               <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
                 <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
-                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.primary} />
+                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
               </TouchableOpacity>
             )}
           </View>
 
           {records.length === 0 ? (
             <View style={styles.emptyHistory}>
-              <Ionicons name="document-text-outline" size={40} color={Colors.mutedForeground} />
+              <Ionicons name="document-text-outline" size={40} color={colors.mutedForeground} />
               <Text style={styles.emptyTitle}>Нет записей</Text>
               <Text style={styles.emptyHint}>Добавьте первую активность</Text>
             </View>
@@ -622,10 +662,10 @@ export default function ActivityScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   content: {
     paddingHorizontal: Spacing.lg,
@@ -646,37 +686,37 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 16,
-    backgroundColor: Colors.activityMuted,
+    backgroundColor: colors.activityMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
     fontSize: FontSize.xxl,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   subtitle: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginTop: 2,
   },
   addHeaderButton: {
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: Colors.activity,
+    backgroundColor: colors.activity,
     alignItems: 'center',
     justifyContent: 'center',
     ...Platform.select({
-      ios: { shadowColor: Colors.activity, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
+      ios: { shadowColor: colors.activity, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
       android: { elevation: 6 },
     }),
   },
   todayCard: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     padding: Spacing.lg,
     marginBottom: Spacing.md,
     ...Platform.select({
@@ -693,13 +733,13 @@ const styles = StyleSheet.create({
   todayLabel: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.medium,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   todayBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: Colors.activityMuted,
+    backgroundColor: colors.activityMuted,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
@@ -707,7 +747,7 @@ const styles = StyleSheet.create({
   todayBadgeText: {
     fontSize: FontSize.xs,
     fontWeight: FontWeight.medium,
-    color: Colors.activity,
+    color: colors.activity,
   },
   todayContent: {
     flexDirection: 'row',
@@ -721,16 +761,16 @@ const styles = StyleSheet.create({
   todayStatDivider: {
     width: 1,
     height: 40,
-    backgroundColor: Colors.border,
+    backgroundColor: colors.border,
   },
   todayValue: {
     fontSize: 36,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   todayUnit: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginTop: 2,
   },
   todayEmpty: {
@@ -740,13 +780,13 @@ const styles = StyleSheet.create({
   },
   todayEmptyText: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   todayAddButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: Colors.activityMuted,
+    backgroundColor: colors.activityMuted,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 12,
@@ -755,7 +795,7 @@ const styles = StyleSheet.create({
   todayAddText: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.medium,
-    color: Colors.activity,
+    color: colors.activity,
   },
   statsRow: {
     flexDirection: 'row',
@@ -764,10 +804,10 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     alignItems: 'center',
     paddingVertical: Spacing.md,
     gap: 4,
@@ -775,26 +815,26 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   statLabel: {
     fontSize: 9,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
   chartCard: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     padding: Spacing.lg,
     marginBottom: Spacing.lg,
   },
   cardTitle: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.medium,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginBottom: Spacing.md,
   },
   chartContainer: {
@@ -808,7 +848,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   historySection: {
     marginBottom: Spacing.lg,
@@ -822,7 +862,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   expandButton: {
     flexDirection: 'row',
@@ -831,14 +871,14 @@ const styles = StyleSheet.create({
   },
   expandText: {
     fontSize: FontSize.sm,
-    color: Colors.primary,
+    color: colors.primary,
     fontWeight: FontWeight.medium,
   },
   emptyHistory: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     alignItems: 'center',
     paddingVertical: Spacing.xxl,
     gap: Spacing.sm,
@@ -846,21 +886,21 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: FontSize.base,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   emptyHint: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     textAlign: 'center',
   },
   historyList: {
     gap: Spacing.sm,
   },
   historyCard: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     overflow: 'hidden',
   },
   historyMain: {
@@ -882,7 +922,7 @@ const styles = StyleSheet.create({
   historyDate: {
     fontSize: FontSize.base,
     fontWeight: FontWeight.medium,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   typeBadge: {
     marginTop: 4,
@@ -897,7 +937,7 @@ const styles = StyleSheet.create({
   historyDuration: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   stepsBadge: {
     flexDirection: 'row',
@@ -907,12 +947,12 @@ const styles = StyleSheet.create({
   },
   historySteps: {
     fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   actionsRow: {
     flexDirection: 'row',
     borderTopWidth: 1,
-    borderTopColor: Colors.border,
+    borderTopColor: colors.border,
   },
   actionButton: {
     flex: 1,
@@ -931,11 +971,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.sm,
-    backgroundColor: Colors.activity,
+    backgroundColor: colors.activity,
     paddingVertical: 16,
     borderRadius: BorderRadius.xl,
     ...Platform.select({
-      ios: { shadowColor: Colors.activity, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
+      ios: { shadowColor: colors.activity, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
       android: { elevation: 6 },
     }),
   },
@@ -950,7 +990,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: Spacing.lg,
@@ -961,14 +1001,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: Colors.border,
+    backgroundColor: colors.border,
     alignSelf: 'center',
     marginBottom: Spacing.lg,
   },
   modalTitle: {
     fontSize: FontSize.xl,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
     marginBottom: Spacing.lg,
     textAlign: 'center',
   },
@@ -978,14 +1018,14 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.medium,
-    color: Colors.foreground,
+    color: colors.foreground,
     marginBottom: 8,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    backgroundColor: Colors.secondary,
+    backgroundColor: colors.secondary,
     borderRadius: BorderRadius.lg,
     paddingHorizontal: Spacing.md,
     paddingVertical: 12,
@@ -993,11 +1033,11 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: FontSize.base,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   inputSuffix: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   rowInputs: {
     flexDirection: 'row',
@@ -1015,14 +1055,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 12,
-    backgroundColor: Colors.secondary,
+    backgroundColor: colors.secondary,
     borderWidth: 1,
     borderColor: 'transparent',
   },
   typeItemText: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.medium,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   modalActions: {
     flexDirection: 'row',
@@ -1033,13 +1073,13 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 14,
     borderRadius: BorderRadius.lg,
-    backgroundColor: Colors.secondary,
+    backgroundColor: colors.secondary,
     alignItems: 'center',
   },
   cancelButtonText: {
     fontSize: FontSize.base,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   saveButton: {
     flex: 2,
@@ -1049,7 +1089,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 14,
     borderRadius: BorderRadius.lg,
-    backgroundColor: Colors.activity,
+    backgroundColor: colors.activity,
   },
   saveButtonDisabled: {
     opacity: 0.6,
@@ -1058,5 +1098,32 @@ const styles = StyleSheet.create({
     fontSize: FontSize.base,
     fontWeight: FontWeight.semibold,
     color: '#fff',
+  },
+  pedometerBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(163,230,53,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(163,230,53,0.25)',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+  },
+  pedometerText: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: colors.foreground,
+  },
+  pedometerApply: {
+    backgroundColor: 'rgba(163,230,53,0.2)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  pedometerApplyText: {
+    fontSize: FontSize.xs,
+    color: colors.primary,
+    fontWeight: FontWeight.semibold,
   },
 });

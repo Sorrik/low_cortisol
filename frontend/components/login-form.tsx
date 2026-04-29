@@ -3,10 +3,12 @@
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { useRouter } from "next/navigation"
+import { AxiosError } from "axios"
 import Link from "next/link"
 import { Eye, EyeOff, Loader2, ArrowRight } from "lucide-react"
 
 import api from "@/lib/api"
+import { setAuth } from "@/lib/auth-store"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -45,11 +47,28 @@ export function LoginForm() {
         email: data.email,
         password: data.password,
       })
-      localStorage.setItem("access_token", response.data.access_token)
-      localStorage.setItem("user", JSON.stringify(response.data.user))
+      setAuth(response.data.access_token, response.data.user)
       router.push("/dashboard")
-    } catch {
-      setError("Неверный email или пароль")
+    } catch (err) {
+      const axiosError = err as AxiosError<{ message?: string | string[] }>
+      const status = axiosError.response?.status
+      const body = axiosError.response?.data
+      const serverMsg = Array.isArray(body?.message)
+        ? body.message.join(". ")
+        : body?.message
+
+      if (status === 401) {
+        setError("Неверный email или пароль")
+      } else if (status === 400 && serverMsg) {
+        setError(serverMsg)
+      } else if (!axiosError.response) {
+        setError(
+          `Не удалось связаться с сервером (${axiosError.code ?? "NETWORK"}). ` +
+          `Проверь, что backend поднят на ${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000"}.`,
+        )
+      } else {
+        setError(serverMsg || "Ошибка входа. Попробуйте снова")
+      }
     }
   }
 

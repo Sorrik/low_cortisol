@@ -257,6 +257,85 @@ export class GamificationService {
     }
   }
 
+  // Публичный: принимает снапшоты за ВСЕ дни (asc), пересчитывает только streak-счётчики
+  async recalculateStreaks(
+    userId: string,
+    snapshots: DailyHealthSnapshot[],
+  ): Promise<void> {
+    const g = await this.getOrCreate(userId)
+    // Сброс streak-полей (points / badges / totalEntries — не трогаем)
+    g.streakAnyCurrent  = 0; g.streakAnyLongest  = 0
+    g.streakFullCurrent = 0; g.streakFullLongest = 0
+    g.streakNormCurrent = 0; g.streakNormLongest = 0
+    g.lastEntryDate     = null
+    g.lastFullDate      = null
+    g.lastNormDate      = null
+    g.streakFreezeUsed  = false
+    g.calmDaysStreak    = 0; g.goodSleepStreak   = 0
+    g.moodRisingDays    = 0; g.hydrationDaysStreak = 0
+
+    for (const snap of snapshots) {
+      this._applyStreakOnly(g, snap)
+    }
+    await this.repo.save(g)
+    this.logger.log(`[gamification] streaks recalculated for ${userId} over ${snapshots.length} days`)
+  }
+
+  // Приватный: та же streak-логика что в processDay(), но без pts/award/totalEntries
+  private _applyStreakOnly(g: UserGamification, snap: DailyHealthSnapshot): void {
+    const today      = snap.date
+    const sleepNorm  = snap.sleepGoalHours ?? 8
+    const stressNorm = snap.baselineStress ?? 5
+
+    const hasAny = snap.hasSleep || snap.hasStress || snap.hasMood ||
+                   snap.hasActivity || snap.hasWater || snap.hasNutrition
+    if (hasAny) {
+      const diff = this._daysDiff(g.lastEntryDate, today)
+      if (diff === 2 && !g.streakFreezeUsed) {
+        g.streakFreezeUsed = true
+        g.streakAnyCurrent += 1
+      } else if (diff > 1) {
+        g.streakAnyCurrent = 1
+        g.streakFreezeUsed = false
+      } else if (diff === 1) {
+        g.streakAnyCurrent += 1
+      } else if (diff === 0 && g.streakAnyCurrent === 0) {
+        g.streakAnyCurrent = 1
+      }
+      g.lastEntryDate    = today
+      g.streakAnyLongest = Math.max(g.streakAnyLongest, g.streakAnyCurrent)
+    }
+
+    const hasFull = snap.hasSleep && snap.hasStress && snap.hasMood &&
+                    snap.hasActivity && snap.hasWater && snap.hasNutrition
+    if (hasFull) {
+      g.streakFullCurrent = this._calculateActiveStreak(g.streakFullCurrent, g.lastFullDate, today)
+      g.lastFullDate      = today
+      g.streakFullLongest = Math.max(g.streakFullLongest, g.streakFullCurrent)
+    }
+
+    const normMet = (snap.sleepHours ?? 0) >= sleepNorm * 0.9 &&
+                    (snap.stressLevel ?? 99) <= stressNorm
+    if (normMet && snap.hasSleep && snap.hasStress) {
+      g.streakNormCurrent = this._calculateActiveStreak(g.streakNormCurrent, g.lastNormDate, today)
+      g.lastNormDate      = today
+      g.streakNormLongest = Math.max(g.streakNormLongest, g.streakNormCurrent)
+    }
+
+    // Специальные счётчики
+    if (snap.hasSleep && snap.sleepHours !== undefined) {
+      const qualityOk = snap.sleepQuality === undefined || snap.sleepQuality >= 7
+      g.goodSleepStreak = (snap.sleepHours >= sleepNorm * 0.9 && qualityOk)
+        ? g.goodSleepStreak + 1 : 0
+    }
+    if (snap.hasStress && snap.stressLevel !== undefined)
+      g.calmDaysStreak = snap.stressLevel <= stressNorm ? g.calmDaysStreak + 1 : 0
+    if (snap.hasMood && snap.moodScore !== undefined)
+      g.moodRisingDays = snap.moodScore >= 6 ? g.moodRisingDays + 1 : 0
+    if (snap.hasWater && snap.waterMl !== undefined)
+      g.hydrationDaysStreak = snap.waterMl >= 1500 ? g.hydrationDaysStreak + 1 : 0
+  }
+
   // Помощник для расчета "живого" стрика без заморозки
   private _calculateActiveStreak(current: number, lastDate: string | null, today: string): number {
     const diff = this._daysDiff(lastDate, today)

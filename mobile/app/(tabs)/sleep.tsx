@@ -13,15 +13,24 @@ import {
   Animated,
   Platform,
   KeyboardAvoidingView,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Rect, Text as SvgText } from 'react-native-svg';
-import { Colors, Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { Spacing, FontSize, FontWeight, BorderRadius, DarkColors } from '@/constants/theme';
+import { useTheme } from '@/context/ThemeContext';
 import { getSleepRecords, addSleepRecord, updateSleepRecord, deleteSleepRecord } from '@/lib/health-api';
 import { Button } from '@/components/ui/Button';
+import { useSleepSession } from '@/hooks/useSleepSession';
 import type { SleepRecord } from '@/types/health';
+
+type ColorPalette = typeof DarkColors;
+const useStyles = () => {
+  const { colors } = useTheme();
+  return useMemo(() => createStyles(colors), [colors]);
+};
 
 const CHART_HEIGHT = 180;
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -55,6 +64,8 @@ function toLocalDateStr(date: Date): string {
 
 // Animated Card
 function AnimatedCard({ children, index, style }: { children: React.ReactNode; index: number; style?: any }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(20)).current;
 
@@ -84,6 +95,8 @@ function HistoryItem({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const [showActions, setShowActions] = useState(false);
 
@@ -107,7 +120,7 @@ function HistoryItem({
         <Animated.View style={[styles.historyCard, { transform: [{ scale: scaleAnim }] }]}>
           <View style={styles.historyMain}>
             <View style={styles.historyIconWrapper}>
-              <Ionicons name="moon" size={18} color={Colors.sleep} />
+              <Ionicons name="moon" size={18} color={colors.sleep} />
             </View>
             <View style={styles.historyContent}>
               <Text style={styles.historyDate}>
@@ -129,12 +142,12 @@ function HistoryItem({
           {showActions && (
             <Animated.View style={styles.actionsRow}>
               <TouchableOpacity style={styles.actionButton} onPress={onEdit} activeOpacity={0.7}>
-                <Ionicons name="pencil" size={16} color={Colors.primary} />
-                <Text style={[styles.actionText, { color: Colors.primary }]}>Изменить</Text>
+                <Ionicons name="pencil" size={16} color={colors.primary} />
+                <Text style={[styles.actionText, { color: colors.primary }]}>Изменить</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionButton} onPress={onDelete} activeOpacity={0.7}>
-                <Ionicons name="trash" size={16} color={Colors.destructive} />
-                <Text style={[styles.actionText, { color: Colors.destructive }]}>Удалить</Text>
+                <Ionicons name="trash" size={16} color={colors.destructive} />
+                <Text style={[styles.actionText, { color: colors.destructive }]}>Удалить</Text>
               </TouchableOpacity>
             </Animated.View>
           )}
@@ -158,6 +171,8 @@ function SleepModal({
   editRecord: SleepRecord | null;
   isLoading: boolean;
 }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const [date, setDate] = useState(toLocalDateStr(new Date()));
   const [bedTime, setBedTime] = useState('23:00');
   const [wakeTime, setWakeTime] = useState('07:00');
@@ -219,13 +234,13 @@ function SleepModal({
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Дата</Text>
               <View style={styles.inputWrapper}>
-                <Ionicons name="calendar" size={18} color={Colors.mutedForeground} />
+                <Ionicons name="calendar" size={18} color={colors.mutedForeground} />
                 <TextInput
                   style={styles.input}
                   value={date}
                   onChangeText={setDate}
                   placeholder="YYYY-MM-DD"
-                  placeholderTextColor={Colors.mutedForeground}
+                  placeholderTextColor={colors.mutedForeground}
                 />
               </View>
             </View>
@@ -235,13 +250,13 @@ function SleepModal({
               <View style={[styles.inputGroup, { flex: 1 }]}>
                 <Text style={styles.inputLabel}>Лег спать</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="moon" size={18} color={Colors.sleep} />
+                  <Ionicons name="moon" size={18} color={colors.sleep} />
                   <TextInput
                     style={styles.input}
                     value={bedTime}
                     onChangeText={setBedTime}
                     placeholder="23:00"
-                    placeholderTextColor={Colors.mutedForeground}
+                    placeholderTextColor={colors.mutedForeground}
                   />
                 </View>
               </View>
@@ -254,7 +269,7 @@ function SleepModal({
                     value={wakeTime}
                     onChangeText={setWakeTime}
                     placeholder="07:00"
-                    placeholderTextColor={Colors.mutedForeground}
+                    placeholderTextColor={colors.mutedForeground}
                   />
                 </View>
               </View>
@@ -262,7 +277,7 @@ function SleepModal({
 
             {/* Calculated hours */}
             <View style={styles.hoursPreview}>
-              <Ionicons name="time" size={20} color={Colors.sleep} />
+              <Ionicons name="time" size={20} color={colors.sleep} />
               <Text style={styles.hoursPreviewText}>
                 Время сна: <Text style={styles.hoursPreviewValue}>{calculateHours().toFixed(1)} ч</Text>
               </Text>
@@ -282,7 +297,7 @@ function SleepModal({
                     <Ionicons
                       name={quality >= q ? 'star' : 'star-outline'}
                       size={20}
-                      color={quality >= q ? '#fbbf24' : Colors.mutedForeground}
+                      color={quality >= q ? '#fbbf24' : colors.mutedForeground}
                     />
                   </TouchableOpacity>
                 ))}
@@ -318,6 +333,8 @@ function SleepModal({
 }
 
 export default function SleepScreen() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -398,6 +415,41 @@ export default function SleepScreen() {
     return records.find((r) => r.date.slice(0, 10) === today);
   }, [records]);
 
+  const { session, startSession, endSession, cancelSession } = useSleepSession();
+
+  const handleStartSleep = async () => {
+    await startSession();
+  };
+
+  const handleWakeUp = async () => {
+    const result = await endSession();
+    if (!result) {
+      Alert.alert(
+        'Сессия сна не сохранена',
+        'Прошло слишком мало или слишком много времени. Введите данные вручную.',
+      );
+      return;
+    }
+    addMutation.mutate({
+      date: toLocalDateStr(new Date()),
+      bedTime: result.bedTime,
+      wakeTime: result.wakeTime,
+      hours: result.hours,
+      quality: 7,
+    });
+  };
+
+  const handleCancelSession = () => {
+    Alert.alert(
+      'Отменить сессию?',
+      'Запись не будет создана',
+      [
+        { text: 'Нет', style: 'cancel' },
+        { text: 'Да, отменить', style: 'destructive', onPress: () => { cancelSession(); } },
+      ],
+    );
+  };
+
   const barWidth = chartData.length > 0 ? Math.min((CHART_WIDTH - (chartData.length - 1) * 8) / chartData.length, 40) : 0;
   const maxHours = Math.max(...chartData.map((d) => d.hours), 10);
 
@@ -411,13 +463,13 @@ export default function SleepScreen() {
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
         {/* Header */}
         <Animated.View style={[styles.header, { opacity: headerFade, transform: [{ translateY: headerTranslate }] }]}>
           <View style={styles.headerLeft}>
             <View style={styles.iconWrapper}>
-              <Ionicons name="moon" size={26} color={Colors.sleep} />
+              <Ionicons name="moon" size={26} color={colors.sleep} />
             </View>
             <View>
               <Text style={styles.title}>Сон</Text>
@@ -442,7 +494,7 @@ export default function SleepScreen() {
             <Text style={styles.todayLabel}>Сегодня</Text>
             {todayRecord && (
               <TouchableOpacity onPress={() => handleEdit(todayRecord)} activeOpacity={0.7}>
-                <Ionicons name="pencil" size={16} color={Colors.mutedForeground} />
+                <Ionicons name="pencil" size={16} color={colors.mutedForeground} />
               </TouchableOpacity>
             )}
           </View>
@@ -455,20 +507,47 @@ export default function SleepScreen() {
                 <Text style={styles.todayQuality}>{todayRecord.quality}/10</Text>
               </View>
             </View>
+          ) : session ? (
+            <View style={styles.sessionActive}>
+              <View style={styles.sessionInfo}>
+                <Ionicons name="moon" size={26} color={colors.sleep} />
+                <View>
+                  <Text style={styles.sessionLabel}>Сплю с</Text>
+                  <Text style={styles.sessionTime}>{session.bedTimeHHMM}</Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.wakeButton}
+                onPress={handleWakeUp}
+                activeOpacity={0.85}
+                disabled={addMutation.isPending}
+              >
+                <Ionicons name="sunny" size={20} color="#fff" />
+                <Text style={styles.wakeButtonText}>Проснулся</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleCancelSession} activeOpacity={0.7} style={styles.cancelSessionLink}>
+                <Text style={styles.cancelSessionText}>Отменить сессию</Text>
+              </TouchableOpacity>
+            </View>
           ) : (
             <View style={styles.todayEmpty}>
-              <Ionicons name="moon-outline" size={32} color={Colors.mutedForeground} />
-              <Text style={styles.todayEmptyText}>Нет данных за сегодня</Text>
               <TouchableOpacity
-                style={styles.todayAddButton}
+                style={styles.bedButton}
+                onPress={handleStartSleep}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="moon" size={22} color="#fff" />
+                <Text style={styles.bedButtonText}>Иду спать</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
                 onPress={() => {
                   setEditRecord(null);
                   setModalVisible(true);
                 }}
-                activeOpacity={0.8}
+                activeOpacity={0.7}
+                style={styles.manualLink}
               >
-                <Ionicons name="add" size={16} color={Colors.sleep} />
-                <Text style={styles.todayAddText}>Добавить</Text>
+                <Text style={styles.manualLinkText}>Ввести вручную</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -477,12 +556,12 @@ export default function SleepScreen() {
         {/* Stats row */}
         <View style={styles.statsRow}>
           <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <Ionicons name="analytics" size={20} color={Colors.sleep} />
+            <Ionicons name="analytics" size={20} color={colors.sleep} />
             <Text style={styles.statValue}>{weeklyAvg}ч</Text>
             <Text style={styles.statLabel}>среднее / 7 дней</Text>
           </AnimatedCard>
           <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <Ionicons name="document-text" size={20} color={Colors.primary} />
+            <Ionicons name="document-text" size={20} color={colors.primary} />
             <Text style={styles.statValue}>{records.length}</Text>
             <Text style={styles.statLabel}>записей всего</Text>
           </AnimatedCard>
@@ -493,7 +572,7 @@ export default function SleepScreen() {
           <Text style={styles.cardTitle}>Сон за 7 дней</Text>
           {chartData.length === 0 ? (
             <View style={styles.emptyChart}>
-              <Ionicons name="bar-chart-outline" size={32} color={Colors.mutedForeground} />
+              <Ionicons name="bar-chart-outline" size={32} color={colors.mutedForeground} />
               <Text style={styles.emptyText}>Нет данных за последние 7 дней</Text>
             </View>
           ) : (
@@ -507,11 +586,11 @@ export default function SleepScreen() {
                   const y = CHART_HEIGHT - 35 - barHeight;
                   return (
                     <React.Fragment key={i}>
-                      <Rect x={x} y={y} width={barWidth} height={barHeight} rx={8} fill={Colors.sleep} />
-                      <SvgText x={x + barWidth / 2} y={CHART_HEIGHT - 12} fontSize={10} fill={Colors.mutedForeground} textAnchor="middle">
+                      <Rect x={x} y={y} width={barWidth} height={barHeight} rx={8} fill={colors.sleep} />
+                      <SvgText x={x + barWidth / 2} y={CHART_HEIGHT - 12} fontSize={10} fill={colors.mutedForeground} textAnchor="middle">
                         {d.date}
                       </SvgText>
-                      <SvgText x={x + barWidth / 2} y={y - 8} fontSize={11} fill={Colors.foreground} fontWeight="600" textAnchor="middle">
+                      <SvgText x={x + barWidth / 2} y={y - 8} fontSize={11} fill={colors.foreground} fontWeight="600" textAnchor="middle">
                         {d.hours.toFixed(1)}
                       </SvgText>
                     </React.Fragment>
@@ -529,14 +608,14 @@ export default function SleepScreen() {
             {hasMoreRecords && (
               <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
                 <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
-                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.primary} />
+                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
               </TouchableOpacity>
             )}
           </View>
 
           {records.length === 0 ? (
             <View style={styles.emptyHistory}>
-              <Ionicons name="document-text-outline" size={40} color={Colors.mutedForeground} />
+              <Ionicons name="document-text-outline" size={40} color={colors.mutedForeground} />
               <Text style={styles.emptyTitle}>Нет записей</Text>
               <Text style={styles.emptyHint}>Добавьте первую запись о сне</Text>
             </View>
@@ -586,10 +665,10 @@ export default function SleepScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   content: {
     paddingHorizontal: Spacing.lg,
@@ -610,37 +689,37 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 16,
-    backgroundColor: Colors.sleepMuted,
+    backgroundColor: colors.sleepMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
     fontSize: FontSize.xxl,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   subtitle: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginTop: 2,
   },
   addHeaderButton: {
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: Colors.sleep,
+    backgroundColor: colors.sleep,
     alignItems: 'center',
     justifyContent: 'center',
     ...Platform.select({
-      ios: { shadowColor: Colors.sleep, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
+      ios: { shadowColor: colors.sleep, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
       android: { elevation: 6 },
     }),
   },
   todayCard: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     padding: Spacing.lg,
     marginBottom: Spacing.md,
     ...Platform.select({
@@ -657,7 +736,7 @@ const styles = StyleSheet.create({
   todayLabel: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.medium,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   todayContent: {
     flexDirection: 'row',
@@ -667,11 +746,11 @@ const styles = StyleSheet.create({
   todayValue: {
     fontSize: 48,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   todayUnit: {
     fontSize: FontSize.lg,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   todayBadge: {
     flexDirection: 'row',
@@ -695,13 +774,13 @@ const styles = StyleSheet.create({
   },
   todayEmptyText: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   todayAddButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: Colors.sleepMuted,
+    backgroundColor: colors.sleepMuted,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 12,
@@ -710,7 +789,72 @@ const styles = StyleSheet.create({
   todayAddText: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.medium,
-    color: Colors.sleep,
+    color: colors.sleep,
+  },
+  bedButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: colors.sleep,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: 16,
+    borderRadius: BorderRadius.lg,
+    width: '100%',
+  },
+  bedButtonText: {
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.bold,
+    color: '#fff',
+    letterSpacing: 0.3,
+  },
+  manualLink: { paddingVertical: 8 },
+  manualLinkText: {
+    fontSize: FontSize.sm,
+    color: colors.mutedForeground,
+    textDecorationLine: 'underline',
+  },
+  sessionActive: {
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  sessionInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    marginBottom: 4,
+  },
+  sessionLabel: {
+    fontSize: FontSize.xs,
+    color: colors.mutedForeground,
+  },
+  sessionTime: {
+    fontSize: FontSize.xl,
+    fontWeight: FontWeight.bold,
+    color: colors.foreground,
+  },
+  wakeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: '#f59e0b',
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: 16,
+    borderRadius: BorderRadius.lg,
+    width: '100%',
+  },
+  wakeButtonText: {
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.bold,
+    color: '#fff',
+    letterSpacing: 0.3,
+  },
+  cancelSessionLink: { paddingVertical: 6 },
+  cancelSessionText: {
+    fontSize: FontSize.xs,
+    color: colors.mutedForeground,
+    textDecorationLine: 'underline',
   },
   statsRow: {
     flexDirection: 'row',
@@ -719,10 +863,10 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     alignItems: 'center',
     paddingVertical: Spacing.lg,
     gap: 6,
@@ -730,26 +874,26 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: FontSize.xl,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   statLabel: {
     fontSize: 10,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
   chartCard: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     padding: Spacing.lg,
     marginBottom: Spacing.lg,
   },
   cardTitle: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.medium,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginBottom: Spacing.md,
   },
   chartContainer: {
@@ -763,7 +907,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   historySection: {
     marginBottom: Spacing.lg,
@@ -777,7 +921,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   expandButton: {
     flexDirection: 'row',
@@ -786,14 +930,14 @@ const styles = StyleSheet.create({
   },
   expandText: {
     fontSize: FontSize.sm,
-    color: Colors.primary,
+    color: colors.primary,
     fontWeight: FontWeight.medium,
   },
   emptyHistory: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     alignItems: 'center',
     paddingVertical: Spacing.xxl,
     gap: Spacing.sm,
@@ -801,21 +945,21 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: FontSize.base,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   emptyHint: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     textAlign: 'center',
   },
   historyList: {
     gap: Spacing.sm,
   },
   historyCard: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     overflow: 'hidden',
   },
   historyMain: {
@@ -828,7 +972,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: Colors.sleepMuted,
+    backgroundColor: colors.sleepMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -838,11 +982,11 @@ const styles = StyleSheet.create({
   historyDate: {
     fontSize: FontSize.base,
     fontWeight: FontWeight.medium,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   historyTime: {
     fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginTop: 2,
   },
   historyStats: {
@@ -851,7 +995,7 @@ const styles = StyleSheet.create({
   historyHours: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   qualityBadge: {
     flexDirection: 'row',
@@ -861,12 +1005,12 @@ const styles = StyleSheet.create({
   },
   historyQuality: {
     fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   actionsRow: {
     flexDirection: 'row',
     borderTopWidth: 1,
-    borderTopColor: Colors.border,
+    borderTopColor: colors.border,
   },
   actionButton: {
     flex: 1,
@@ -885,11 +1029,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.sm,
-    backgroundColor: Colors.sleep,
+    backgroundColor: colors.sleep,
     paddingVertical: 16,
     borderRadius: BorderRadius.xl,
     ...Platform.select({
-      ios: { shadowColor: Colors.sleep, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
+      ios: { shadowColor: colors.sleep, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
       android: { elevation: 6 },
     }),
   },
@@ -904,7 +1048,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: Spacing.lg,
@@ -914,14 +1058,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: Colors.border,
+    backgroundColor: colors.border,
     alignSelf: 'center',
     marginBottom: Spacing.lg,
   },
   modalTitle: {
     fontSize: FontSize.xl,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
     marginBottom: Spacing.lg,
     textAlign: 'center',
   },
@@ -931,14 +1075,14 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.medium,
-    color: Colors.foreground,
+    color: colors.foreground,
     marginBottom: 8,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    backgroundColor: Colors.secondary,
+    backgroundColor: colors.secondary,
     borderRadius: BorderRadius.lg,
     paddingHorizontal: Spacing.md,
     paddingVertical: 12,
@@ -946,7 +1090,7 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: FontSize.base,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   timeRow: {
     flexDirection: 'row',
@@ -956,18 +1100,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    backgroundColor: Colors.sleepMuted,
+    backgroundColor: colors.sleepMuted,
     borderRadius: BorderRadius.lg,
     padding: Spacing.md,
     marginBottom: Spacing.md,
   },
   hoursPreviewText: {
     fontSize: FontSize.base,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   hoursPreviewValue: {
     fontWeight: FontWeight.bold,
-    color: Colors.sleep,
+    color: colors.sleep,
   },
   qualityRow: {
     flexDirection: 'row',
@@ -986,13 +1130,13 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 14,
     borderRadius: BorderRadius.lg,
-    backgroundColor: Colors.secondary,
+    backgroundColor: colors.secondary,
     alignItems: 'center',
   },
   cancelButtonText: {
     fontSize: FontSize.base,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   saveButton: {
     flex: 2,
@@ -1002,7 +1146,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 14,
     borderRadius: BorderRadius.lg,
-    backgroundColor: Colors.sleep,
+    backgroundColor: colors.sleep,
   },
   saveButtonDisabled: {
     opacity: 0.6,

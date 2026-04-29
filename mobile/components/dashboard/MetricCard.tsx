@@ -1,8 +1,9 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
-import { Colors, BorderRadius, Spacing, FontSize, FontWeight } from '@/constants/theme'
+import { BorderRadius, Spacing, FontSize, FontWeight } from '@/constants/theme'
+import { useTheme } from '@/context/ThemeContext'
 import { Sparkline } from './Sparkline'
 
 type IoniconsName = keyof typeof Ionicons.glyphMap
@@ -33,6 +34,45 @@ export function MetricCard({
   onAdd,
 }: MetricCardProps) {
   const router = useRouter()
+  const { colors } = useTheme()
+
+  const styles = useMemo(() => StyleSheet.create({
+    card: {
+      backgroundColor: colors.card,
+      borderRadius: BorderRadius.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: Spacing.lg,
+      gap: Spacing.md,
+    },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    iconRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+    iconWrapper: {
+      width: 36,
+      height: 36,
+      borderRadius: BorderRadius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    title: { color: colors.mutedForeground, fontSize: FontSize.sm, fontWeight: FontWeight.medium },
+    addButton: {
+      width: 32,
+      height: 32,
+      borderRadius: BorderRadius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    valueRow: { flexDirection: 'row', alignItems: 'baseline', gap: Spacing.sm },
+    value: { color: colors.foreground, fontSize: FontSize.xxl, fontWeight: FontWeight.bold },
+    subtitle: { color: colors.mutedForeground, fontSize: FontSize.xs },
+    progressBar: {
+      height: 6,
+      backgroundColor: colors.secondary,
+      borderRadius: BorderRadius.full,
+      overflow: 'hidden',
+    },
+    progressFill: { height: '100%', borderRadius: BorderRadius.full },
+  }), [colors])
 
   return (
     <TouchableOpacity
@@ -40,7 +80,6 @@ export function MetricCard({
       onPress={() => router.push(href as any)}
       activeOpacity={0.7}
     >
-      {/* Header */}
       <View style={styles.header}>
         <View style={styles.iconRow}>
           <View style={[styles.iconWrapper, { backgroundColor: colorMuted }]}>
@@ -57,18 +96,16 @@ export function MetricCard({
               onAdd()
             }}
           >
-            <Ionicons name="add" size={18} color={Colors.mutedForeground} />
+            <Ionicons name="add" size={18} color={colors.mutedForeground} />
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Value */}
       <View style={styles.valueRow}>
         <Text style={styles.value}>{value}</Text>
         {subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
       </View>
 
-      {/* Progress bar */}
       {progress !== undefined && (
         <View style={styles.progressBar}>
           <View
@@ -83,72 +120,7 @@ export function MetricCard({
         </View>
       )}
 
-      {/* Sparkline */}
       <Sparkline data={sparklineData} color={color} />
     </TouchableOpacity>
   )
 }
-
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: Colors.card,
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: Spacing.lg,
-    gap: Spacing.md,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  iconRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  iconWrapper: {
-    width: 36,
-    height: 36,
-    borderRadius: BorderRadius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  title: {
-    color: Colors.mutedForeground,
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.medium,
-  },
-  addButton: {
-    width: 32,
-    height: 32,
-    borderRadius: BorderRadius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  valueRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: Spacing.sm,
-  },
-  value: {
-    color: Colors.foreground,
-    fontSize: FontSize.xxl,
-    fontWeight: FontWeight.bold,
-  },
-  subtitle: {
-    color: Colors.mutedForeground,
-    fontSize: FontSize.xs,
-  },
-  progressBar: {
-    height: 6,
-    backgroundColor: Colors.secondary,
-    borderRadius: BorderRadius.full,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: BorderRadius.full,
-  },
-})

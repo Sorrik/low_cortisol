@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import { View, StyleSheet, ViewStyle, TouchableOpacity, StyleProp } from 'react-native'
-import { Colors, BorderRadius, Spacing } from '@/constants/theme'
+import { BorderRadius, Spacing } from '@/constants/theme'
+import { useTheme } from '@/context/ThemeContext'
 
 interface CardProps {
   children: React.ReactNode
@@ -10,6 +11,18 @@ interface CardProps {
 }
 
 export function Card({ children, style, onPress, variant = 'default' }: CardProps) {
+  const { colors } = useTheme()
+  const styles = useMemo(() => StyleSheet.create({
+    card: {
+      backgroundColor: colors.card,
+      borderRadius: BorderRadius.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: 'hidden',
+    },
+    outlined: { backgroundColor: 'transparent' },
+  }), [colors])
+
   const cardStyle = [
     styles.card,
     variant === 'outlined' && styles.outlined,
@@ -33,7 +46,7 @@ interface CardContentProps {
 }
 
 export function CardContent({ children, style }: CardContentProps) {
-  return <View style={[styles.content, style]}>{children}</View>
+  return <View style={[contentStyles.content, style]}>{children}</View>
 }
 
 interface CardHeaderProps {
@@ -42,25 +55,10 @@ interface CardHeaderProps {
 }
 
 export function CardHeader({ children, style }: CardHeaderProps) {
-  return <View style={[styles.header, style]}>{children}</View>
+  return <View style={[contentStyles.header, style]}>{children}</View>
 }
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: Colors.card,
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    overflow: 'hidden',
-  },
-  outlined: {
-    backgroundColor: 'transparent',
-  },
-  content: {
-    padding: Spacing.lg,
-  },
-  header: {
-    padding: Spacing.lg,
-    paddingBottom: Spacing.sm,
-  },
+const contentStyles = StyleSheet.create({
+  content: { padding: Spacing.lg },
+  header: { padding: Spacing.lg, paddingBottom: Spacing.sm },
 })

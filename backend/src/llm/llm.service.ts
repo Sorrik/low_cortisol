@@ -10,6 +10,11 @@ import {
 } from './prompt-builder'
 import { RecommendationDto }  from '../ml/dto/ml-response.dto'
 import { RagService }         from '../rag/rag.service'
+import {
+  RECOMMENDATIONS_JSON_SCHEMA,
+  VALID_METRICS,
+  VALID_SEVERITIES,
+} from './recommendations.schema'
 
 // ── Типы ─────────────────────────────────────────────────────
 
@@ -42,8 +47,9 @@ export class LlmService {
       apiKey:  this.config.get<string>('OPENAI_API_KEY'),
       baseURL: this.config.get<string>('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
     })
-    // gpt-4.1-mini — быстрее и дешевле gpt-4o-mini
-    this.model = this.config.get<string>('LLM_MODEL', 'gpt-4.1-mini')
+    // gpt-4o-2024-08-06 — первая версия с поддержкой Structured Outputs (strict JSON schema).
+    // gpt-4.1-mini / gpt-4o-mini тоже поддерживают, но 4o даёт лучшее качество советов.
+    this.model = this.config.get<string>('LLM_MODEL', 'gpt-4o-2024-08-06')
   }
 
   // ── Главный метод ─────────────────────────────────────────
@@ -101,7 +107,29 @@ export class LlmService {
           { role: 'system', content: system },
           { role: 'user',   content: user   },
         ],
+        // Structured Outputs: модель гарантирует JSON, валидный по схеме.
+        // Избавляет от ручного markdown-stripping и снижает hallucination.
+        response_format: {
+          type: 'json_schema',
+          json_schema: RECOMMENDATIONS_JSON_SCHEMA,
+        },
       })
+
+      // Если модель решила отказать (safety refusal) — message.refusal будет строкой
+      const refusal = response.choices?.[0]?.message?.refusal
+      if (refusal) {
+        this.logger.warn(`[getRecommendations] model refused: ${refusal}`)
+        return { recommendations: [], sources }
+      }
+
+      // Artemox-прокси иногда возвращает HTTP 200 с телом null —
+      // OpenAI SDK парсит это как null вместо броска APIError
+      if (!response || !response.choices?.length) {
+        throw new Error(
+          `OpenAI proxy returned empty response (model=${this.model}). ` +
+          `Possible cause: quota exceeded or proxy error.`
+        )
+      }
 
       const raw = response.choices[0]?.message?.content ?? ''
 
@@ -111,7 +139,7 @@ export class LlmService {
         `completion=${response.usage?.completion_tokens}`
       )
 
-      const recommendations = this._parseResponse(raw)
+      const recommendations = this._correctSeverities(this._parseResponse(raw), healthData)
       return { recommendations, sources }
 
     } catch (err) {
@@ -120,16 +148,93 @@ export class LlmService {
     }
   }
 
+  // ── Постобработка severity ────────────────────────────────
+  // Корректирует severity в обе стороны:
+  // - повышает когда LLM занижает критические значения
+  // - понижает когда LLM завышает хорошие значения
+
+  private _correctSeverities(
+    recs: RecommendationDto[],
+    healthData: any,
+  ): RecommendationDto[] {
+    const SEVERITY_ORDER = { good: 0, attention: 1, alert: 2 }
+
+    const avgOf = (arr: any[], key: string) =>
+      arr.length ? arr.reduce((s: number, r: any) => s + (r[key] ?? 0), 0) / arr.length : 0
+
+    const avgCalories = avgOf(healthData.nutrition ?? [], 'calories')
+    const avgSleep    = avgOf(healthData.sleep     ?? [], 'duration_hours')
+    const avgStress   = avgOf(healthData.stress    ?? [], 'level')
+    const avgMood     = avgOf(healthData.mood      ?? [], 'mood_score')
+
+    const sleepGoal = (healthData._user_profile?.sleep_goal_hours as number | undefined) ?? 8
+    const baseline  = (healthData._user_profile?.baseline_stress  as number | undefined) ?? 5
+
+    // Минимальный порог (повышает severity): метрика в опасном диапазоне
+    const minSeverity: Record<string, 'good' | 'attention' | 'alert'> = {}
+    if (avgCalories > 0) {
+      if (avgCalories < 1200 || avgCalories > 3500) minSeverity['food'] = 'alert'
+    }
+    if (avgSleep > 0) {
+      if (avgSleep < 5.5)      minSeverity['sleep'] = 'alert'
+      else if (avgSleep > 10)  minSeverity['sleep'] = 'attention'
+    }
+    if (avgStress > 0) {
+      if (avgStress > 8) {
+        minSeverity['stress'] = 'alert'
+      } else if (avgStress > 7 || (avgStress - baseline >= 2 && avgStress > 5)) {
+        minSeverity['stress'] = 'attention'
+      }
+    }
+    if (avgMood > 0) {
+      if (avgMood < 4)        minSeverity['mood'] = 'alert'
+      else if (avgMood < 6)   minSeverity['mood'] = 'attention'
+    }
+
+    // Максимальный порог (понижает severity): метрика в хорошем диапазоне — LLM не может завышать
+    const maxSeverity: Record<string, 'good' | 'attention' | 'alert'> = {}
+    if (avgStress > 0 && avgStress < 5)                    maxSeverity['stress']   = 'attention'
+    if (avgSleep  > 0 && avgSleep  >= sleepGoal - 0.5)     maxSeverity['sleep']    = 'attention'
+    if (avgMood   > 0 && avgMood   >= 6)                   maxSeverity['mood']     = 'attention'
+    if (avgCalories > 1200 && avgCalories < 3500)          maxSeverity['food']     = 'attention'
+
+    return recs.map(rec => {
+      let { severity } = rec
+      const current = SEVERITY_ORDER[severity as keyof typeof SEVERITY_ORDER] ?? 0
+
+      // Применяем минимум (повышение)
+      const floor = minSeverity[rec.metric]
+      if (floor && SEVERITY_ORDER[floor] > current) {
+        this.logger.warn(
+          `[_correctSeverities] ${rec.metric}: ${severity}→${floor} (raised)` +
+          ` cal=${avgCalories.toFixed(0)}, sleep=${avgSleep.toFixed(1)},` +
+          ` stress=${avgStress.toFixed(1)}, mood=${avgMood.toFixed(1)}`
+        )
+        severity = floor
+      }
+
+      // Применяем максимум (понижение)
+      const ceil = maxSeverity[rec.metric]
+      const corrected = SEVERITY_ORDER[severity as keyof typeof SEVERITY_ORDER] ?? 0
+      if (ceil && corrected > SEVERITY_ORDER[ceil]) {
+        this.logger.warn(
+          `[_correctSeverities] ${rec.metric}: ${severity}→${ceil} (lowered, value is good)`
+        )
+        severity = ceil
+      }
+
+      return severity !== rec.severity ? { ...rec, severity } : rec
+    })
+  }
+
   // ── Парсинг ответа ────────────────────────────────────────
+  // Structured Outputs гарантирует валидный JSON по нашей схеме,
+  // но оставляем defense-in-depth проверки полей — прокси или старые
+  // модели могут схему проигнорировать.
 
   private _parseResponse(raw: string): RecommendationDto[] {
     try {
-      const cleaned = raw
-        .replace(/```json\n?/g, '')
-        .replace(/```\n?/g, '')
-        .trim()
-
-      const parsed = JSON.parse(cleaned)
+      const parsed = JSON.parse(raw)
       const recs   = parsed?.recommendations
 
       if (!Array.isArray(recs)) {
@@ -137,17 +242,14 @@ export class LlmService {
         return []
       }
 
-      const VALID_METRICS    = ['sleep', 'mood', 'stress', 'activity', 'water', 'food']
-      const VALID_SEVERITIES = ['good', 'attention', 'alert']
-
       const valid = recs.filter((r: any) => {
         const ok =
           typeof r.metric      === 'string' &&
           typeof r.severity    === 'string' &&
           typeof r.title       === 'string' &&
           typeof r.description === 'string' &&
-          VALID_METRICS.includes(r.metric)   &&
-          VALID_SEVERITIES.includes(r.severity)
+          (VALID_METRICS    as readonly string[]).includes(r.metric)   &&
+          (VALID_SEVERITIES as readonly string[]).includes(r.severity)
 
         if (!ok) {
           this.logger.warn(`[_parseResponse] невалидная: ${JSON.stringify(r)}`)

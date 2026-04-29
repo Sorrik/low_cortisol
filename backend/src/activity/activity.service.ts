@@ -25,6 +25,7 @@ async create(userId: string, dto: CreateActivityDto): Promise<ActivityData> {
     durationMinutes: dto.durationMinutes,
     intensity:       dto.intensity,
     caloriesBurned:  dto.caloriesBurned ?? null,
+    steps:           dto.steps          ?? null,
     notes:           dto.notes          ?? null,
   })
 

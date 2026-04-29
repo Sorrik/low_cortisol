@@ -6,7 +6,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { Colors, Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme'
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles';
+import { useTheme } from '@/context/ThemeContext';
 import { completeOnboarding } from '@/lib/onboarding-api'
 import type { OnboardingData, GoalType, SleepChronotype, ActivityLevel, SportType, AgeRange, Gender } from '@/lib/onboarding-api'
 
@@ -78,6 +80,8 @@ const GENDERS: { id: Gender; label: string }[] = [
 ]
 
 function StressBar({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   return (
     <View style={styles.stressRow}>
       {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
@@ -97,6 +101,8 @@ function StressBar({ value, onChange }: { value: number; onChange: (v: number) =
 }
 
 export default function OnboardingScreen() {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const router = useRouter()
   const [step, setStep] = useState(1)
   const [form, setForm] = useState<FormState>(DEFAULTS)
@@ -199,13 +205,13 @@ export default function OnboardingScreen() {
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Как вас зовут?</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="person-outline" size={18} color={Colors.mutedForeground} />
+                  <Ionicons name="person-outline" size={18} color={colors.mutedForeground} />
                   <TextInput
                     style={styles.input}
                     value={form.name}
                     onChangeText={v => set('name', v)}
                     placeholder="Ваше имя"
-                    placeholderTextColor={Colors.mutedForeground}
+                    placeholderTextColor={colors.mutedForeground}
                   />
                 </View>
               </View>
@@ -427,8 +433,8 @@ export default function OnboardingScreen() {
         {/* Footer */}
         <View style={styles.footer}>
           <TouchableOpacity style={styles.backBtn} onPress={() => setStep(s => s - 1)} disabled={step === 1}>
-            <Ionicons name="chevron-back" size={20} color={step === 1 ? Colors.border : Colors.foreground} />
-            <Text style={[styles.backBtnText, step === 1 && { color: Colors.border }]}>Назад</Text>
+            <Ionicons name="chevron-back" size={20} color={step === 1 ? colors.border : colors.foreground} />
+            <Text style={[styles.backBtnText, step === 1 && { color: colors.border }]}>Назад</Text>
           </TouchableOpacity>
 
           {step < TOTAL_STEPS ? (
@@ -455,74 +461,74 @@ export default function OnboardingScreen() {
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  header: { padding: Spacing.lg, backgroundColor: Colors.card, borderBottomWidth: 1, borderBottomColor: Colors.border },
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
+  header: { padding: Spacing.lg, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
-  headerTitle: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: Colors.foreground },
-  headerStep: { fontSize: FontSize.sm, color: Colors.mutedForeground },
+  headerTitle: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: colors.foreground },
+  headerStep: { fontSize: FontSize.sm, color: colors.mutedForeground },
   progressRow: { flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.sm },
   progressItem: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  progressDot: { width: 28, height: 28, borderRadius: 14, backgroundColor: Colors.secondary, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: Colors.border },
-  progressDotActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  progressDotDone: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  progressDotText: { fontSize: 11, fontWeight: FontWeight.bold, color: Colors.mutedForeground },
-  progressLine: { flex: 1, height: 2, backgroundColor: Colors.border, marginHorizontal: 2 },
-  progressLineDone: { backgroundColor: Colors.primary },
-  stepTitle: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.foreground },
+  progressDot: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.secondary, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.border },
+  progressDotActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  progressDotDone: { backgroundColor: colors.primary, borderColor: colors.primary },
+  progressDotText: { fontSize: 11, fontWeight: FontWeight.bold, color: colors.mutedForeground },
+  progressLine: { flex: 1, height: 2, backgroundColor: colors.border, marginHorizontal: 2 },
+  progressLineDone: { backgroundColor: colors.primary },
+  stepTitle: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: colors.foreground },
   content: { flex: 1 },
   contentInner: { padding: Spacing.lg },
   stepContent: { gap: Spacing.lg },
   inputGroup: { gap: Spacing.sm },
-  label: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.foreground },
-  inputWrapper: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: Colors.secondary, borderRadius: BorderRadius.lg, paddingHorizontal: Spacing.md, paddingVertical: 12 },
-  input: { flex: 1, fontSize: FontSize.base, color: Colors.foreground },
+  label: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: colors.foreground },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: colors.secondary, borderRadius: BorderRadius.lg, paddingHorizontal: Spacing.md, paddingVertical: 12 },
+  input: { flex: 1, fontSize: FontSize.base, color: colors.foreground },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  chip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: BorderRadius.full, backgroundColor: Colors.secondary, borderWidth: 1, borderColor: Colors.border },
-  chipActive: { backgroundColor: Colors.primaryMuted, borderColor: Colors.primary },
-  chipText: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.mutedForeground },
-  chipTextActive: { color: Colors.primary },
+  chip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: BorderRadius.full, backgroundColor: colors.secondary, borderWidth: 1, borderColor: colors.border },
+  chipActive: { backgroundColor: colors.primaryMuted, borderColor: colors.primary },
+  chipText: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: colors.mutedForeground },
+  chipTextActive: { color: colors.primary },
   optionList: { gap: Spacing.sm },
-  optionItem: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.md, backgroundColor: Colors.secondary, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: Colors.border },
-  optionItemActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryMuted },
-  optionText: { fontSize: FontSize.base, fontWeight: FontWeight.medium, color: Colors.foreground },
-  optionDesc: { fontSize: FontSize.xs, color: Colors.mutedForeground, marginTop: 2 },
-  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
-  radioActive: { borderColor: Colors.primary },
-  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.primary },
-  goalItem: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.md, backgroundColor: Colors.secondary, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: Colors.border },
-  goalItemActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryMuted },
+  optionItem: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.md, backgroundColor: colors.secondary, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: colors.border },
+  optionItemActive: { borderColor: colors.primary, backgroundColor: colors.primaryMuted },
+  optionText: { fontSize: FontSize.base, fontWeight: FontWeight.medium, color: colors.foreground },
+  optionDesc: { fontSize: FontSize.xs, color: colors.mutedForeground, marginTop: 2 },
+  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  radioActive: { borderColor: colors.primary },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary },
+  goalItem: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.md, backgroundColor: colors.secondary, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: colors.border },
+  goalItemActive: { borderColor: colors.primary, backgroundColor: colors.primaryMuted },
   goalItemDisabled: { opacity: 0.5 },
-  goalLabel: { fontSize: FontSize.base, fontWeight: FontWeight.medium, color: Colors.foreground },
-  goalDesc: { fontSize: FontSize.xs, color: Colors.mutedForeground },
-  checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
-  checkboxActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  goalLabel: { fontSize: FontSize.base, fontWeight: FontWeight.medium, color: colors.foreground },
+  goalDesc: { fontSize: FontSize.xs, color: colors.mutedForeground },
+  checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  checkboxActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   sliderHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sliderValue: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: Colors.primary },
+  sliderValue: { fontSize: FontSize.xl, fontWeight: FontWeight.bold, color: colors.primary },
   sliderRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: Spacing.md },
-  sliderDot: { flex: 1, height: 8, borderRadius: 4, backgroundColor: Colors.secondary },
-  sliderDotActive: { backgroundColor: Colors.primary },
+  sliderDot: { flex: 1, height: 8, borderRadius: 4, backgroundColor: colors.secondary },
+  sliderDotActive: { backgroundColor: colors.primary },
   sliderLabels: { flexDirection: 'row', justifyContent: 'space-between' },
-  sliderLabel: { fontSize: FontSize.xs, color: Colors.mutedForeground },
+  sliderLabel: { fontSize: FontSize.xs, color: colors.mutedForeground },
   rowInputs: { flexDirection: 'row', gap: Spacing.md },
-  counter: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.secondary, borderRadius: BorderRadius.lg, overflow: 'hidden' },
+  counter: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.secondary, borderRadius: BorderRadius.lg, overflow: 'hidden' },
   counterBtn: { padding: Spacing.md, alignItems: 'center', justifyContent: 'center' },
-  counterBtnText: { fontSize: FontSize.xl, color: Colors.foreground },
-  counterValue: { flex: 1, textAlign: 'center', fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: Colors.foreground },
+  counterBtnText: { fontSize: FontSize.xl, color: colors.foreground },
+  counterValue: { flex: 1, textAlign: 'center', fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: colors.foreground },
   stressCenter: { alignItems: 'center', paddingVertical: Spacing.xl },
   stressBig: { fontSize: 72, fontWeight: FontWeight.bold },
-  stressSubtitle: { fontSize: FontSize.lg, color: Colors.mutedForeground, marginTop: Spacing.sm },
+  stressSubtitle: { fontSize: FontSize.lg, color: colors.mutedForeground, marginTop: Spacing.sm },
   stressRow: { flexDirection: 'row', gap: 6 },
-  stressBtn: { flex: 1, aspectRatio: 1, borderRadius: BorderRadius.md, backgroundColor: Colors.secondary, alignItems: 'center', justifyContent: 'center' },
-  stressBtnText: { fontSize: FontSize.xs, fontWeight: FontWeight.bold, color: Colors.mutedForeground },
-  infoBox: { backgroundColor: Colors.secondary, borderRadius: BorderRadius.lg, padding: Spacing.lg, gap: Spacing.sm, marginTop: Spacing.lg },
-  infoTitle: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: Colors.foreground },
-  infoText: { fontSize: FontSize.sm, color: Colors.mutedForeground },
-  errorText: { color: Colors.destructive, textAlign: 'center', fontSize: FontSize.sm },
-  footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing.lg, borderTopWidth: 1, borderTopColor: Colors.border, backgroundColor: Colors.card },
+  stressBtn: { flex: 1, aspectRatio: 1, borderRadius: BorderRadius.md, backgroundColor: colors.secondary, alignItems: 'center', justifyContent: 'center' },
+  stressBtnText: { fontSize: FontSize.xs, fontWeight: FontWeight.bold, color: colors.mutedForeground },
+  infoBox: { backgroundColor: colors.secondary, borderRadius: BorderRadius.lg, padding: Spacing.lg, gap: Spacing.sm, marginTop: Spacing.lg },
+  infoTitle: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: colors.foreground },
+  infoText: { fontSize: FontSize.sm, color: colors.mutedForeground },
+  errorText: { color: colors.destructive, textAlign: 'center', fontSize: FontSize.sm },
+  footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing.lg, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.card },
   backBtn: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, padding: Spacing.md },
-  backBtnText: { fontSize: FontSize.base, fontWeight: FontWeight.medium, color: Colors.foreground },
-  nextBtn: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: Colors.primary, paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md, borderRadius: BorderRadius.lg },
+  backBtnText: { fontSize: FontSize.base, fontWeight: FontWeight.medium, color: colors.foreground },
+  nextBtn: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: colors.primary, paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md, borderRadius: BorderRadius.lg },
   nextBtnDisabled: { opacity: 0.5 },
-  nextBtnText: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: Colors.primaryForeground },
+  nextBtnText: { fontSize: FontSize.base, fontWeight: FontWeight.semibold, color: colors.primaryForeground },
 })

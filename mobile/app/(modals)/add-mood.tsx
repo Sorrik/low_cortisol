@@ -7,7 +7,7 @@ import {
 import { useRouter } from 'expo-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { X } from 'lucide-react-native'
-import { createMood } from '@/lib/health-api'  // ← исправлено
+import { createMood } from '@/lib/health-api'
 
 function todayStr(): string {
   const d = new Date()

@@ -15,7 +15,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
+import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles';
+import { useTheme } from '@/context/ThemeContext';
+
 import { getAchievements, getFullStreakData, getUserLevel } from '@/lib/health-api';
 import { ProgressBar } from '@/components/dashboard/ProgressBar';
 import type { Achievement, FullStreakData, UserLevelInfo } from '@/types/health';
@@ -70,6 +73,8 @@ function getDayWord(n: number): string {
 
 // Animated Card Wrapper
 function AnimatedCard({ children, index, style }: { children: React.ReactNode; index: number; style?: any }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(20)).current;
   const scale = useRef(new Animated.Value(0.95)).current;
@@ -96,6 +101,8 @@ function StreakCard({
   title: string; description: string; current: number; best: number;
   icon: keyof typeof Ionicons.glyphMap; color: string; index: number;
 }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const nextMilestone = STREAK_MILESTONES.find(t => t > current) ?? 100;
   const progress = (current / nextMilestone) * 100;
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -147,6 +154,8 @@ function StreakCard({
 
 // Level Card
 function LevelCard({ levelInfo, index }: { levelInfo: UserLevelInfo; index: number }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const progress = (levelInfo.xp / levelInfo.nextLevelXp) * 100;
   const levels = Object.entries(LEVEL_CONFIG);
   const curIdx = levels.findIndex(([key]) => key === levelInfo.level);
@@ -166,7 +175,7 @@ function LevelCard({ levelInfo, index }: { levelInfo: UserLevelInfo; index: numb
           <View style={styles.levelHeader}>
             <View style={styles.levelLeft}>
               <View style={styles.levelIconBg}>
-                <Ionicons name="trending-up" size={28} color={Colors.primary} />
+                <Ionicons name="trending-up" size={28} color={colors.primary} />
               </View>
               <View>
                 <Text style={styles.levelLabel}>Ваш уровень</Text>
@@ -197,9 +206,9 @@ function LevelCard({ levelInfo, index }: { levelInfo: UserLevelInfo; index: numb
                 <View key={key} style={[styles.levelStep, isCurrent && styles.levelStepCurrent]}>
                   <View style={[styles.levelStepIcon, isUnlocked ? styles.levelStepUnlocked : styles.levelStepLocked]}>
                     {isUnlocked ? (
-                      <Ionicons name="checkmark-circle" size={16} color={isCurrent ? Colors.primary : Colors.primary + '90'} />
+                      <Ionicons name="checkmark-circle" size={16} color={isCurrent ? colors.primary : colors.primary + '90'} />
                     ) : (
-                      <Ionicons name="lock-closed" size={12} color={Colors.mutedForeground} />
+                      <Ionicons name="lock-closed" size={12} color={colors.mutedForeground} />
                     )}
                   </View>
                   <Text style={[styles.levelStepText, isCurrent && styles.levelStepTextCurrent]}>
@@ -217,6 +226,8 @@ function LevelCard({ levelInfo, index }: { levelInfo: UserLevelInfo; index: numb
 
 // Badge Card
 function BadgeCard({ badge, index }: { badge: Achievement; index: number }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const iconName = iconMap[badge.icon] ?? 'ribbon';
   const rarity = rarityConfig[badge.rarity] ?? rarityConfig.common;
   const progress = Math.min((badge.progress / badge.maxProgress) * 100, 100);
@@ -239,18 +250,18 @@ function BadgeCard({ badge, index }: { badge: Achievement; index: number }) {
             { transform: [{ scale: scaleAnim }] },
             isUnlocked
               ? { backgroundColor: rarity.bgColor, borderColor: rarity.color + '40' }
-              : { backgroundColor: Colors.card + '80', borderColor: Colors.border },
+              : { backgroundColor: colors.card + '80', borderColor: colors.border },
           ]}
         >
           {!isUnlocked && (
             <View style={styles.badgeLockOverlay}>
-              <Ionicons name="lock-closed" size={24} color={Colors.mutedForeground} />
+              <Ionicons name="lock-closed" size={24} color={colors.mutedForeground} />
             </View>
           )}
 
           <View style={styles.badgeHeader}>
-            <View style={[styles.badgeIconBg, { backgroundColor: isUnlocked ? rarity.bgColor : Colors.cardHover }]}>
-              <Ionicons name={iconName} size={20} color={isUnlocked ? rarity.color : Colors.mutedForeground} />
+            <View style={[styles.badgeIconBg, { backgroundColor: isUnlocked ? rarity.bgColor : colors.cardHover }]}>
+              <Ionicons name={iconName} size={20} color={isUnlocked ? rarity.color : colors.mutedForeground} />
             </View>
             <View style={styles.badgeTextWrapper}>
               <View style={styles.badgeTitleRow}>
@@ -264,7 +275,7 @@ function BadgeCard({ badge, index }: { badge: Achievement; index: number }) {
           <View style={styles.badgeProgressSection}>
             <View style={styles.badgeProgressLabels}>
               <Text style={styles.badgeProgressText}>{badge.progress}/{badge.maxProgress}</Text>
-              <Text style={[styles.badgeXp, { color: isUnlocked ? rarity.color : Colors.mutedForeground }]}>
+              <Text style={[styles.badgeXp, { color: isUnlocked ? rarity.color : colors.mutedForeground }]}>
                 +{badge.points} XP
               </Text>
             </View>
@@ -272,7 +283,7 @@ function BadgeCard({ badge, index }: { badge: Achievement; index: number }) {
               <View
                 style={[
                   styles.badgeProgressFill,
-                  { width: `${progress}%`, backgroundColor: isUnlocked ? Colors.primary : Colors.mutedForeground + '60' },
+                  { width: `${progress}%`, backgroundColor: isUnlocked ? colors.primary : colors.mutedForeground + '60' },
                 ]}
               />
             </View>
@@ -301,6 +312,8 @@ function FilterChip({
   label: string; count: number; active: boolean; onPress: () => void;
   icon?: keyof typeof Ionicons.glyphMap; color?: string;
 }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
@@ -331,6 +344,8 @@ function FilterChip({
 
 // Section Header
 function SectionHeader({ icon, title, color }: { icon: keyof typeof Ionicons.glyphMap; title: string; color: string }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   return (
     <View style={styles.sectionHeader}>
       <Ionicons name={icon} size={20} color={color} />
@@ -341,6 +356,8 @@ function SectionHeader({ icon, title, color }: { icon: keyof typeof Ionicons.gly
 
 // Rarity Stats Card
 function RarityStatsCard({ achievements, index }: { achievements: Achievement[]; index: number }) {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   return (
     <AnimatedCard index={index}>
       <View style={styles.rarityStatsCard}>
@@ -368,6 +385,8 @@ function RarityStatsCard({ achievements, index }: { achievements: Achievement[];
 
 // Main Screen
 export default function AchievementsScreen() {
+  const styles = useThemedStyles(createStyles);
+  const { colors } = useTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
@@ -449,7 +468,7 @@ export default function AchievementsScreen() {
       <Animated.View style={[styles.header, { opacity: headerFade, transform: [{ translateY: headerTranslate }] }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton} activeOpacity={0.7}>
           <View style={styles.backButtonInner}>
-            <Ionicons name="chevron-back" size={22} color={Colors.foreground} />
+            <Ionicons name="chevron-back" size={22} color={colors.foreground} />
           </View>
         </TouchableOpacity>
 
@@ -475,7 +494,7 @@ export default function AchievementsScreen() {
         style={styles.scrollView}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
         {/* Level Card */}
         {levelInfo && <LevelCard levelInfo={levelInfo} index={cardIndex++} />}
@@ -500,7 +519,7 @@ export default function AchievementsScreen() {
                 current={streakData.allMetrics.current}
                 best={streakData.allMetrics.best}
                 icon="checkmark-circle"
-                color={Colors.primary}
+                color={colors.primary}
                 index={cardIndex++}
               />
               <StreakCard
@@ -525,7 +544,7 @@ export default function AchievementsScreen() {
               onPress={() => setShowUnlockedOnly(!showUnlockedOnly)}
               activeOpacity={0.7}
             >
-              <Ionicons name="funnel" size={12} color={showUnlockedOnly ? Colors.primary : Colors.mutedForeground} />
+              <Ionicons name="funnel" size={12} color={showUnlockedOnly ? colors.primary : colors.mutedForeground} />
               <Text style={[styles.filterToggleText, showUnlockedOnly && styles.filterToggleTextActive]}>
                 Полученные
               </Text>
@@ -564,7 +583,7 @@ export default function AchievementsScreen() {
           {filteredBadges.length === 0 && (
             <View style={styles.emptyState}>
               <View style={styles.emptyIconWrapper}>
-                <Ionicons name="trophy" size={32} color={Colors.mutedForeground} />
+                <Ionicons name="trophy" size={32} color={colors.mutedForeground} />
               </View>
               <Text style={styles.emptyTitle}>Нет бейджей</Text>
               <Text style={styles.emptyText}>
@@ -583,10 +602,10 @@ export default function AchievementsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   scrollView: {
     flex: 1,
@@ -604,7 +623,7 @@ const styles = StyleSheet.create({
   loadingCard: {
     height: 120,
     borderRadius: BorderRadius.xl,
-    backgroundColor: Colors.cardHover,
+    backgroundColor: colors.cardHover,
   },
   header: {
     flexDirection: 'row',
@@ -620,7 +639,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: Colors.cardHover,
+    backgroundColor: colors.cardHover,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -645,12 +664,12 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
     letterSpacing: -0.3,
   },
   headerSubtitle: {
     fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginTop: 2,
   },
   trophyBadge: {
@@ -678,16 +697,16 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: FontSize.lg,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   streaksGrid: {
     gap: Spacing.md,
   },
   streakCard: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     padding: Spacing.md,
     ...Platform.select({
       ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 8 },
@@ -713,11 +732,11 @@ const styles = StyleSheet.create({
   streakTitle: {
     fontSize: FontSize.base,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   streakDescription: {
     fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginTop: 2,
   },
   streakValueRow: {
@@ -729,15 +748,15 @@ const styles = StyleSheet.create({
   streakValue: {
     fontSize: 36,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   streakUnit: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   streakBest: {
     fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginBottom: Spacing.md,
   },
   progressSection: {
@@ -749,18 +768,18 @@ const styles = StyleSheet.create({
   },
   progressLabelLeft: {
     fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   progressLabelRight: {
     fontSize: FontSize.xs,
     fontWeight: FontWeight.medium,
-    color: Colors.primary,
+    color: colors.primary,
   },
   levelCard: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     padding: Spacing.lg,
     ...Platform.select({
       ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 8 },
@@ -782,33 +801,33 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 18,
-    backgroundColor: Colors.primaryMuted,
+    backgroundColor: colors.primaryMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
   levelLabel: {
     fontSize: FontSize.xs,
     fontWeight: FontWeight.medium,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginBottom: 2,
   },
   levelName: {
     fontSize: FontSize.xl,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   levelRight: {
     alignItems: 'flex-end',
   },
   xpLabel: {
     fontSize: FontSize.xs,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginBottom: 2,
   },
   xpValue: {
     fontSize: FontSize.xl,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   levelProgress: {
     marginBottom: Spacing.lg,
@@ -817,18 +836,18 @@ const styles = StyleSheet.create({
   levelProgressValue: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   levelProgressBar: {
     height: 10,
     borderRadius: 5,
-    backgroundColor: Colors.cardHover,
+    backgroundColor: colors.cardHover,
     overflow: 'hidden',
   },
   levelProgressFill: {
     height: '100%',
     borderRadius: 5,
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
   },
   levelSteps: {
     flexDirection: 'row',
@@ -843,7 +862,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   levelStepCurrent: {
-    backgroundColor: Colors.primaryMuted,
+    backgroundColor: colors.primaryMuted,
   },
   levelStepIcon: {
     width: 32,
@@ -853,19 +872,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   levelStepUnlocked: {
-    backgroundColor: Colors.primaryMuted,
+    backgroundColor: colors.primaryMuted,
   },
   levelStepLocked: {
-    backgroundColor: Colors.cardHover,
+    backgroundColor: colors.cardHover,
   },
   levelStepText: {
     fontSize: 9,
     fontWeight: FontWeight.medium,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     textAlign: 'center',
   },
   levelStepTextCurrent: {
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   badgesSectionHeader: {
     flexDirection: 'row',
@@ -881,15 +900,15 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   filterToggleActive: {
-    backgroundColor: Colors.primaryMuted,
+    backgroundColor: colors.primaryMuted,
   },
   filterToggleText: {
     fontSize: FontSize.xs,
     fontWeight: FontWeight.medium,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   filterToggleTextActive: {
-    color: Colors.primary,
+    color: colors.primary,
   },
   filtersScroll: {
     marginHorizontal: -Spacing.lg,
@@ -908,15 +927,15 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   filterChipActive: {
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
   },
   filterChipInactive: {
-    backgroundColor: Colors.cardHover,
+    backgroundColor: colors.cardHover,
   },
   filterChipText: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.medium,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   filterChipTextActive: {
     color: '#fff',
@@ -925,7 +944,7 @@ const styles = StyleSheet.create({
     minWidth: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 6,
@@ -936,7 +955,7 @@ const styles = StyleSheet.create({
   filterChipCountText: {
     fontSize: FontSize.xs,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   filterChipCountTextActive: {
     color: '#fff',
@@ -990,12 +1009,12 @@ const styles = StyleSheet.create({
   badgeTitle: {
     fontSize: FontSize.sm,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
     flex: 1,
   },
   badgeDescription: {
     fontSize: 10,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     marginTop: 2,
     lineHeight: 14,
   },
@@ -1008,7 +1027,7 @@ const styles = StyleSheet.create({
   },
   badgeProgressText: {
     fontSize: 9,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   badgeXp: {
     fontSize: 9,
@@ -1017,7 +1036,7 @@ const styles = StyleSheet.create({
   badgeProgressBar: {
     height: 4,
     borderRadius: 2,
-    backgroundColor: Colors.cardHover,
+    backgroundColor: colors.cardHover,
     overflow: 'hidden',
   },
   badgeProgressFill: {
@@ -1031,7 +1050,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.sm,
     paddingTop: Spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: Colors.border + '50',
+    borderTopColor: colors.border + '50',
   },
   rarityBadge: {
     paddingHorizontal: 8,
@@ -1044,7 +1063,7 @@ const styles = StyleSheet.create({
   },
   badgeDate: {
     fontSize: 9,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
   emptyState: {
     alignItems: 'center',
@@ -1055,7 +1074,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 20,
-    backgroundColor: Colors.cardHover,
+    backgroundColor: colors.cardHover,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: Spacing.sm,
@@ -1063,20 +1082,20 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: FontSize.base,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   emptyText: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
     textAlign: 'center',
     maxWidth: 280,
     lineHeight: 20,
   },
   rarityStatsCard: {
-    backgroundColor: Colors.card,
+    backgroundColor: colors.card,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     padding: Spacing.lg,
     ...Platform.select({
       ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 8 },
@@ -1086,7 +1105,7 @@ const styles = StyleSheet.create({
   rarityStatsTitle: {
     fontSize: FontSize.base,
     fontWeight: FontWeight.semibold,
-    color: Colors.foreground,
+    color: colors.foreground,
     marginBottom: Spacing.md,
   },
   rarityGrid: {
@@ -1108,10 +1127,10 @@ const styles = StyleSheet.create({
   rarityStatValue: {
     fontSize: FontSize.xl,
     fontWeight: FontWeight.bold,
-    color: Colors.foreground,
+    color: colors.foreground,
   },
   rarityStatTotal: {
     fontSize: FontSize.sm,
-    color: Colors.mutedForeground,
+    color: colors.mutedForeground,
   },
 });

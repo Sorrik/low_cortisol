@@ -3,7 +3,9 @@
 import {
   Entity, PrimaryGeneratedColumn, Column,
   CreateDateColumn, UpdateDateColumn, Index,
+  OneToOne, JoinColumn,
 } from 'typeorm'
+import { User } from '../users/user.entity'
 
 export type BadgeId =
   // Стрики — любые данные
@@ -39,6 +41,10 @@ export class UserGamification {
   @Index()
   @Column({ name: 'user_id', unique: true })
   userId!: string
+
+  @OneToOne(() => User, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'user_id' })
+  user!: User
 
   // ── Стрик 1: Любые данные ─────────────────────────────────
   @Column({ name: 'streak_any_current', default: 0 })
