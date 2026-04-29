@@ -391,14 +391,18 @@ def _calculate_shap(
     model_type: str = "unknown",
 ) -> List[Dict]:
     try:
+        # Для линейной Ridge-модели используем локальные линейные вклады напрямую.
+        # После StandardScaler признаки находятся в scaled-space, поэтому coef * x_scaled
+        # даёт стабильную и интерпретируемую оценку вклада каждого признака в прогноз.
+        if model_type == "ridge" and hasattr(model, "coef_"):
+            coefs = np.asarray(model.coef_, dtype=float).reshape(-1)
+            shap_arr_raw = coefs * np.asarray(x_scaled[0], dtype=float)
         # GBR и RF: TreeExplainer.shap_values() → ndarray
-        # Ridge:    LinearExplainer()           → Explanation объект
-        # Унифицируем оба пути в shap_arr_raw: np.ndarray до общего кода
-        if model_type in ("gradient_boosting", "random_forest") or hasattr(model, "estimators_"):
+        elif model_type in ("gradient_boosting", "random_forest") or hasattr(model, "estimators_"):
             explainer    = shap.TreeExplainer(model)
             shap_arr_raw = np.array(explainer.shap_values(x_scaled)[0])
         else:
-            # Ridge — LinearExplainer возвращает Explanation, берём .values[0]
+            # Fallback для прочих линейных/нестандартных моделей.
             explainer    = shap.LinearExplainer(model, masker=shap.maskers.Independent(x_scaled))
             shap_arr_raw = np.array(explainer(x_scaled).values[0])
 

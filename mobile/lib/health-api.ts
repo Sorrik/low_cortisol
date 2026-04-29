@@ -136,7 +136,8 @@ export const getMoodRecords      = () => api.get('/mood').then(r => getData<any>
 export const getActivityRecords  = () => api.get('/activity').then(r => getData<any>(r).map(mapActivity))
 export const getWaterRecords     = () => api.get('/water').then(r => getData<any>(r).map(mapWater))
 export const getNutritionRecords = () => api.get('/nutrition').then(r => getData<any>(r).map(mapNutrition))
-export const getInsights         = () => api.get<InsightsResponse>('/insights/me').then(r => r.data)
+export const getInsights         = () =>
+  api.get<InsightsResponse>('/insights/me', { timeout: 35_000 }).then(r => r.data)
 export const getGamification     = () => api.get<GamificationDto>('/gamification').then(r => r.data)
 
 // ── POST ──────────────────────────────────────────────────

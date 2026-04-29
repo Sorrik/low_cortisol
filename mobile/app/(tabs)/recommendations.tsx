@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Spacing, FontSize, FontWeight, BorderRadius } from '@/constants/theme';
 import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles';
 import { useTheme } from '@/context/ThemeContext';
+import { useAuthStore } from '@/store/auth.store';
 
 import { getInsights } from '@/lib/health-api';
 import { ProgressBar } from '@/components/dashboard/ProgressBar';
@@ -248,6 +249,8 @@ export default function RecommendationsScreen() {
   const styles = useThemedStyles(createStyles);
   const { colors } = useTheme();
   const router = useRouter();
+  const token = useAuthStore((state) => state.token);
+  const isAuthReady = useAuthStore((state) => state.isReady);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const toggle = (key: string) => setExpandedKey(prev => (prev === key ? null : key));
@@ -267,6 +270,7 @@ export default function RecommendationsScreen() {
   const { data: insights, isLoading, isError, refetch } = useQuery({
     queryKey: ['insights'],
     queryFn: getInsights,
+    enabled: isAuthReady && !!token,
     staleTime: 1000 * 60 * 5,
   });
 
@@ -397,10 +401,15 @@ export default function RecommendationsScreen() {
               </View>
               <View style={styles.progressWrapper}>
                 <ProgressBar
-                  progress={(insights.phase.total_records / (insights.phase.total_records + insights.phase.records_needed)) * 100}
+                  progress={
+                    insights.phase.total_records + insights.phase.records_needed > 0
+                      ? (insights.phase.total_records / (insights.phase.total_records + insights.phase.records_needed)) * 100
+                      : 0
+                  }
                   height={6}
                 />
               </View>
+              <Text style={styles.phaseMessage}>{insights.phase.message}</Text>
             </View>
           </AnimatedCard>
         )}
@@ -679,6 +688,11 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     fontSize: FontSize.xs,
     color: colors.mutedForeground,
     marginTop: 2,
+  },
+  phaseMessage: {
+    fontSize: FontSize.xs,
+    color: colors.mutedForeground,
+    lineHeight: 18,
   },
   progressWrapper: {
     paddingHorizontal: 4,

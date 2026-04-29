@@ -128,7 +128,7 @@ function StatsCard({ icon: Icon, label, value, sublabel, color, bgColor }: {
 }
 
 function ProgressSection({ phase }: { phase: InsightsResponse["phase"] }) {
-  const total     = phase.total_records + phase.records_needed
+  const total = phase.total_records + phase.records_needed
   const progress = total > 0 ? Math.round((phase.total_records / total) * 100) : 0
 
   const phaseLabels: Record<string, { label: string; desc: string }> = {
@@ -149,6 +149,7 @@ function ProgressSection({ phase }: { phase: InsightsResponse["phase"] }) {
         <span className="text-sm font-medium text-muted-foreground">{phase.total_records} из {total} дней</span>
       </div>
       <Progress value={progress} className="h-2" />
+      <p className="mt-3 text-sm text-muted-foreground">{phase.message}</p>
     </div>
   )
 }
@@ -254,7 +255,7 @@ export default function RecommendationsPage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatsCard
             icon={TrendingUp} label="Прогноз дня"
-            value={insights?.predicted_mood ? insights.predicted_mood.toFixed(1) : "—"} sublabel="/10"
+            value={insights?.predicted_mood != null ? insights.predicted_mood.toFixed(1) : "—"} sublabel="/10"
             color="text-primary" bgColor="bg-primary/10"
           />
           <StatsCard

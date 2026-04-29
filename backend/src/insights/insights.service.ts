@@ -110,9 +110,13 @@ export class InsightsService {
         ...rulesData.mood.map(m => ({ score: m.mood_score, date: m.date })),
         ...rulesData.stress.map(s => ({ stressLevel: s.level, date: s.date })),
       ],
+      {
+        totalDataDays: this._countUniqueDays(healthData),
+      },
     )
 
     const ruleResults = this.rulesService.topN(metrics, 4)
+    const ruleFallback = this._buildRuleFallbackRecommendations(ruleResults)
     const hasCriticalAlerts = ruleResults.some(r => r.severity === 'critical') || anomalyReport.hasCritical
 
     const predictCacheKey = `predict:${userId}`
@@ -146,11 +150,17 @@ export class InsightsService {
       }
     }
 
-    const prediction = await this.mlService.predict({
-      user_id: userId,
-      health_data: healthData,
-      user_profile: userProfile,
-    })
+    let prediction: MlPredictResponseDto
+    try {
+      prediction = await this.mlService.predict({
+        user_id: userId,
+        health_data: healthData,
+        user_profile: userProfile,
+      })
+    } catch (err) {
+      this.logger.warn(`[getInsights] predict failed -> rule fallback: ${err}`)
+      prediction = this._buildFallbackPrediction(userId, healthData)
+    }
 
     const pythonRecommendations: RecommendationDto[] = prediction.recommendations ?? []
 
@@ -192,7 +202,7 @@ export class InsightsService {
       healthData,
       metrics,
       ruleResults,
-      pythonRecommendations,
+      pythonRecommendations.length > 0 ? pythonRecommendations : ruleFallback,
       mlPrediction,
       userProfile,
     )
@@ -369,6 +379,121 @@ export class InsightsService {
       activity: filterRecords(healthData.activity),
       water: filterRecords(healthData.water),
       nutrition: filterRecords(healthData.nutrition),
+    }
+  }
+
+  private _countUniqueDays(healthData: any): number {
+    const dates = new Set<string>()
+    const collect = <T extends { date: string }>(records: T[] = []) => {
+      for (const record of records) {
+        if (record?.date) dates.add(String(record.date).slice(0, 10))
+      }
+    }
+
+    collect(healthData.sleep)
+    collect(healthData.mood)
+    collect(healthData.stress)
+    collect(healthData.activity)
+    collect(healthData.water)
+    collect(healthData.nutrition)
+
+    return dates.size
+  }
+
+  private _buildRuleFallbackRecommendations(ruleResults: RuleResult[]): RecommendationDto[] {
+    return ruleResults.map(rule => ({
+      metric: this._mapRuleCategory(rule.category),
+      severity: this._mapRuleSeverity(rule.severity),
+      title: rule.title,
+      description: `${rule.shortReason} ${rule.suggestion}`.trim(),
+    }))
+  }
+
+  private _buildFallbackPrediction(userId: string, healthData: any): MlPredictResponseDto {
+    const moodRecords = Array.isArray(healthData?.mood) ? healthData.mood.length : 0
+    const phase = moodRecords < 14
+      ? {
+          mode: 'cold_start' as const,
+          total_records: moodRecords,
+          records_needed: Math.max(0, 14 - moodRecords),
+          accuracy_percent: 0,
+          message: `Need ${Math.max(0, 14 - moodRecords)} more mood days before model training can start`,
+        }
+      : moodRecords < 50
+        ? {
+            mode: 'learning' as const,
+            total_records: moodRecords,
+            records_needed: Math.max(0, 50 - moodRecords),
+            accuracy_percent: 0,
+            message: 'ML service temporarily unavailable, using rule-based recommendations',
+          }
+        : {
+            mode: 'personal' as const,
+            total_records: moodRecords,
+            records_needed: 0,
+            accuracy_percent: 0,
+            message: 'ML service temporarily unavailable, using rule-based recommendations',
+          }
+
+    return {
+      user_id: userId,
+      phase,
+      predicted_mood: null,
+      confidence_lower: null,
+      confidence_upper: null,
+      top_influencers: [],
+      recommendations: [],
+      model_version: 'rule_based_fallback',
+      data_completeness: this._calculateDataCompleteness(healthData, 14),
+    }
+  }
+
+  private _calculateDataCompleteness(healthData: any, windowDays: number) {
+    const since = this._sinceDate(windowDays - 1)
+    const percentage = (records: Array<{ date: string }> = []) => {
+      const days = new Set(
+        records
+          .filter(record => record?.date && record.date >= since)
+          .map(record => String(record.date).slice(0, 10)),
+      )
+      return Math.min(100, Math.round((days.size / windowDays) * 100))
+    }
+
+    return {
+      sleep: percentage(healthData?.sleep),
+      mood: percentage(healthData?.mood),
+      stress: percentage(healthData?.stress),
+      activity: percentage(healthData?.activity),
+      nutrition: percentage(healthData?.nutrition),
+      water: percentage(healthData?.water),
+    }
+  }
+
+  private _mapRuleCategory(category: RuleResult['category']): RecommendationDto['metric'] {
+    switch (category) {
+      case 'nutrition':
+        return 'food'
+      case 'sleep':
+        return 'sleep'
+      case 'activity':
+        return 'activity'
+      case 'stress':
+        return 'stress'
+      case 'mood':
+      default:
+        return 'mood'
+    }
+  }
+
+  private _mapRuleSeverity(severity: RuleResult['severity']): RecommendationDto['severity'] {
+    switch (severity) {
+      case 'critical':
+        return 'alert'
+      case 'warning':
+        return 'attention'
+      case 'info':
+      default:
+        return 'good'
     }
   }
 

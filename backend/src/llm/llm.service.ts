@@ -38,14 +38,18 @@ export class LlmService {
   private readonly logger = new Logger(LlmService.name)
   private readonly client: OpenAI
   private readonly model:  string
+  private readonly requestTimeoutMs: number
 
   constructor(
     private readonly config:     ConfigService,
     private readonly ragService: RagService,
   ) {
+    this.requestTimeoutMs = this.config.get<number>('OPENAI_TIMEOUT_MS', 20_000)
     this.client = new OpenAI({
       apiKey:  this.config.get<string>('OPENAI_API_KEY'),
       baseURL: this.config.get<string>('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+      timeout: this.requestTimeoutMs,
+      maxRetries: 1,
     })
     // gpt-4o-2024-08-06 — первая версия с поддержкой Structured Outputs (strict JSON schema).
     // gpt-4.1-mini / gpt-4o-mini тоже поддерживают, но 4o даёт лучшее качество советов.
@@ -96,7 +100,10 @@ export class LlmService {
     )
     const { system, user } = JSON.parse(promptPayload)
 
-    this.logger.debug(`[getRecommendations] prompt preview: ${user.slice(0, 300)}...`)
+    this.logger.debug(
+      `[getRecommendations] prompt ready: system_chars=${system.length}, ` +
+      `user_chars=${user.length}, articles=${articles.length}`,
+    )
 
     try {
       const response = await this.client.chat.completions.create({
@@ -113,6 +120,8 @@ export class LlmService {
           type: 'json_schema',
           json_schema: RECOMMENDATIONS_JSON_SCHEMA,
         },
+      }, {
+        timeout: this.requestTimeoutMs,
       })
 
       // Если модель решила отказать (safety refusal) — message.refusal будет строкой

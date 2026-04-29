@@ -55,13 +55,13 @@ export const mockStress: StressRecord[] = [
 ]
 
 export const mockActivity: ActivityRecord[] = [
-  { id: "a1", date: daysAgo(0), type: "running", duration: 45, steps: 8500 },
+  { id: "a1", date: daysAgo(0), type: "run", duration: 45, steps: 8500 },
   { id: "a2", date: daysAgo(1), type: "gym", duration: 60, steps: 3200 },
-  { id: "a3", date: daysAgo(2), type: "walking", duration: 30, steps: 6000 },
-  { id: "a4", date: daysAgo(3), type: "running", duration: 35, steps: 7200 },
+  { id: "a3", date: daysAgo(2), type: "walk", duration: 30, steps: 6000 },
+  { id: "a4", date: daysAgo(3), type: "run", duration: 35, steps: 7200 },
   { id: "a5", date: daysAgo(4), type: "other", duration: 50, steps: 4500 },
   { id: "a6", date: daysAgo(5), type: "gym", duration: 70, steps: 3000 },
-  { id: "a7", date: daysAgo(6), type: "walking", duration: 40, steps: 5500 },
+  { id: "a7", date: daysAgo(6), type: "walk", duration: 40, steps: 5500 },
 ]
 
 export const mockWater: WaterRecord[] = [
