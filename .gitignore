@@ -3,3 +3,5 @@ node_modules
 *.pyc
 *.pyo
 trained_models/
+ml-service/.venv/
+ml-service/models_verify/

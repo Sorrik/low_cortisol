@@ -25,6 +25,7 @@ from app.services.model_service import (
     _build_dataset,
     _bump_version,
     _calculate_shap,
+    _lag1_baseline_metrics,
 )
 from app.services.model_storage import (
     get_model_meta,
@@ -122,8 +123,10 @@ def train_model(
             f"n_estimators={getattr(model, 'n_estimators', 'n/a')})"
         )
 
-    cv_mae: Optional[float] = None
-    cv_r2: Optional[float] = None
+    # ── Кросс-валидация (TimeSeriesSplit, без shuffle) ───────────────────────
+    cv_mae:    Optional[float] = None
+    cv_r2:     Optional[float] = None
+    cv_status: str             = "insufficient_data"
 
     if samples_count >= MIN_SAMPLES_CV:
         n_splits = min(5, max(2, samples_count // 5))
@@ -144,24 +147,40 @@ def train_model(
             cv=tscv,
             scoring="r2",
         )
-        cv_mae = round(float(-cv_scores_mae.mean()), 3)
-        cv_r2 = round(float(cv_scores_r2.mean()), 3)
+        cv_mae    = round(float(-cv_scores_mae.mean()), 3)
+        cv_r2     = round(float(cv_scores_r2.mean()), 3)
+        cv_status = "ok"
 
     oob_r2: Optional[float] = None
     if hasattr(model, "oob_score_") and model.oob_score_ is not None:
         oob_r2 = round(float(model.oob_score_), 3)
 
+    # ── Baseline lag-1: «mood завтра = mood вчера» ───────────────────────────
+    # Без сравнения с этим baseline нельзя сказать, добавляют ли 23 фичи реальный
+    # сигнал поверх простой авторегрессии. Если improvement_mae_pct ≈ 0 (или
+    # отрицательный) — модель не нужна и фронту лучше показать честный «модель
+    # ещё калибруется, пока работают правила».
+    baseline_mae, baseline_r2 = _lag1_baseline_metrics(y)
+
+    improvement_mae_pct: Optional[float] = None
+    if cv_mae is not None and baseline_mae and baseline_mae > 0:
+        improvement_mae_pct = round((1.0 - cv_mae / baseline_mae) * 100, 1)
+
     version = _bump_version(meta.get("version", "v0") if meta else "v0")
     model_meta = {
-        "version": version,
-        "model_type": model_type_name,
-        "trained_at": datetime.now(timezone.utc).isoformat(),
-        "samples": samples_count,
-        "features": features_count,
-        "feature_names": feature_names,
-        "cv_mae": cv_mae,
-        "cv_r2": cv_r2,
-        "oob_r2": oob_r2,
+        "version":             version,
+        "model_type":          model_type_name,
+        "trained_at":          datetime.now(timezone.utc).isoformat(),
+        "samples":             samples_count,
+        "features":            features_count,
+        "feature_names":       feature_names,
+        "cv_status":           cv_status,
+        "cv_mae":              cv_mae,
+        "cv_r2":               cv_r2,
+        "oob_r2":              oob_r2,
+        "baseline_mae":        baseline_mae,
+        "baseline_r2":         baseline_r2,
+        "improvement_mae_pct": improvement_mae_pct,
     }
 
     model_path = get_model_path(user_id)
@@ -176,18 +195,24 @@ def train_model(
 
     logger.info(
         f"[{user_id}] Trained [{model_type_name}]: {samples_count} samples, "
-        f"{features_count} features, cv_mae={cv_mae}, cv_r2={cv_r2}"
+        f"{features_count} features, cv_status={cv_status}, "
+        f"cv_mae={cv_mae}, baseline_mae={baseline_mae}, "
+        f"improvement={improvement_mae_pct}%"
     )
 
     return {
-        "status": "trained",
-        "version": version,
-        "model_type": model_type_name,
-        "samples": samples_count,
-        "features": features_count,
-        "cv_mae": cv_mae,
-        "cv_r2": cv_r2,
-        "oob_r2": oob_r2,
+        "status":              "trained",
+        "version":             version,
+        "model_type":          model_type_name,
+        "samples":             samples_count,
+        "features":            features_count,
+        "cv_status":           cv_status,
+        "cv_mae":              cv_mae,
+        "cv_r2":               cv_r2,
+        "oob_r2":              oob_r2,
+        "baseline_mae":        baseline_mae,
+        "baseline_r2":         baseline_r2,
+        "improvement_mae_pct": improvement_mae_pct,
     }
 
 

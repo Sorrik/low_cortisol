@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # Без утечки: _slice_data_up_to использует строгое <
 
 MIN_SAMPLES_TO_TRAIN = 14   # минимум 14 дней (2 полных недели)
-MIN_SAMPLES_CV       = 20   # кросс-валидация с n >= 20
+MIN_SAMPLES_CV       = 30   # кросс-валидация с n >= 30 (TimeSeriesSplit требует ~5 точек на фолд)
 MIN_SAMPLES_GBR      = 50   # GBR надёжен при n >= 50, иначе — Ridge (было 30)
 
 RF_N_ESTIMATORS      = 200
@@ -163,7 +163,9 @@ def _set_cached_model(user_id: str, version: str, model: Any, scaler: StandardSc
 
 
 # ─────────────────────────────────────────────────────────────
-# Train
+# Train (DEPRECATED — рабочая реализация живёт в model_runtime.train_model;
+# здесь оставлено для обратной совместимости импортов и истории. Удалить
+# в следующем коммите вместе с дублирующимся predict_mood.)
 # ─────────────────────────────────────────────────────────────
 
 def train_model(user_id: str, data: HealthData, user_profile: Optional[Any] = None) -> Dict[str, Any]:
@@ -228,28 +230,45 @@ def train_model(user_id: str, data: HealthData, user_profile: Optional[Any] = No
         )
 
     # ── Кросс-валидация ───────────────────────────────────────────────────────
-    cv_mae: Optional[float] = None
-    cv_r2:  Optional[float] = None
+    # TimeSeriesSplit (а не KFold с shuffle): данные — временной ряд, нельзя
+    # обучаться на «будущих» днях для предсказания «прошлых». Каждый фолд
+    # обучается на префиксе истории и валидируется на следующем окне.
+    cv_mae:    Optional[float] = None
+    cv_r2:     Optional[float] = None
+    cv_status: str             = "insufficient_data"
 
     if samples_count >= MIN_SAMPLES_CV:
-        n_splits  = min(5, samples_count // 4)
-        kf        = KFold(n_splits=n_splits, shuffle=True, random_state=RF_RANDOM_STATE)
+        n_splits = min(5, samples_count // 6)  # TimeSeriesSplit: ~6 точек на фолд
+        if n_splits >= 2:
+            tscv = TimeSeriesSplit(n_splits=n_splits)
 
-        cv_scores_mae = cross_val_score(
-            model, X_scaled, y, cv=kf,
-            scoring="neg_mean_absolute_error",
-        )
-        cv_scores_r2  = cross_val_score(
-            model, X_scaled, y, cv=kf,
-            scoring="r2",
-        )
-        cv_mae = round(float(-cv_scores_mae.mean()), 3)
-        cv_r2  = round(float(cv_scores_r2.mean()), 3)
+            cv_scores_mae = cross_val_score(
+                model, X_scaled, y, cv=tscv,
+                scoring="neg_mean_absolute_error",
+            )
+            cv_scores_r2  = cross_val_score(
+                model, X_scaled, y, cv=tscv,
+                scoring="r2",
+            )
+            cv_mae    = round(float(-cv_scores_mae.mean()), 3)
+            cv_r2     = round(float(cv_scores_r2.mean()), 3)
+            cv_status = "ok"
 
     # ── OOB только для RF (GBR/Ridge не имеют oob_score) ─────────────────────
     oob_r2: Optional[float] = None
     if hasattr(model, "oob_score_") and model.oob_score_ is not None:
         oob_r2 = round(float(model.oob_score_), 3)
+
+    # ── Baseline-модель: «настроение завтра = настроение вчера» (lag-1) ──────
+    # Без этого baseline'а нельзя сказать, добавляют ли 23 фичи реальный сигнал
+    # поверх простой авторегрессии. Метрика модели должна быть лучше baseline'а,
+    # иначе модель не нужна.
+    baseline_mae, baseline_r2 = _lag1_baseline_metrics(y)
+
+    # Чистый прирост модели над baseline'ом (только если cv успешно посчитан).
+    improvement_mae_pct: Optional[float] = None
+    if cv_mae is not None and baseline_mae and baseline_mae > 0:
+        improvement_mae_pct = round((1.0 - cv_mae / baseline_mae) * 100, 1)
 
     # ── Сохранение ────────────────────────────────────────────────────────────
     model_path  = get_model_path(user_id)
@@ -260,32 +279,65 @@ def train_model(user_id: str, data: HealthData, user_profile: Optional[Any] = No
 
     version = _bump_version(meta.get("version", "v0") if meta else "v0")
     save_model_meta(user_id, {
-        "version":       version,
-        "model_type":    model_type_name,
-        "trained_at":    datetime.now(timezone.utc).isoformat(),
-        "samples":       samples_count,
-        "features":      features_count,
-        "feature_names": feature_names,
-        "cv_mae":        cv_mae,
-        "cv_r2":         cv_r2,
-        "oob_r2":        oob_r2,
+        "version":             version,
+        "model_type":          model_type_name,
+        "trained_at":          datetime.now(timezone.utc).isoformat(),
+        "samples":             samples_count,
+        "features":            features_count,
+        "feature_names":       feature_names,
+        "cv_status":           cv_status,
+        "cv_mae":              cv_mae,
+        "cv_r2":                cv_r2,
+        "oob_r2":              oob_r2,
+        "baseline_mae":        baseline_mae,
+        "baseline_r2":         baseline_r2,
+        "improvement_mae_pct": improvement_mae_pct,
     })
 
     logger.info(
         f"[{user_id}] Trained [{model_type_name}]: {samples_count} samples, "
-        f"{features_count} features, cv_mae={cv_mae}, cv_r2={cv_r2}"
+        f"{features_count} features, cv_status={cv_status}, "
+        f"cv_mae={cv_mae}, baseline_mae={baseline_mae}, "
+        f"improvement={improvement_mae_pct}%"
     )
 
     return {
-        "status":     "trained",
-        "version":    version,
-        "model_type": model_type_name,
-        "samples":    samples_count,
-        "features":   features_count,
-        "cv_mae":     cv_mae,
-        "cv_r2":      cv_r2,
-        "oob_r2":     oob_r2,
+        "status":              "trained",
+        "version":             version,
+        "model_type":          model_type_name,
+        "samples":             samples_count,
+        "features":            features_count,
+        "cv_status":           cv_status,
+        "cv_mae":              cv_mae,
+        "cv_r2":                cv_r2,
+        "oob_r2":              oob_r2,
+        "baseline_mae":        baseline_mae,
+        "baseline_r2":         baseline_r2,
+        "improvement_mae_pct": improvement_mae_pct,
     }
+
+
+def _lag1_baseline_metrics(y: np.ndarray) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Baseline: «mood_t = mood_{t-1}» (предсказание следующего дня = предыдущий день).
+    Возвращает (MAE, R²). Если данных < 3 — None.
+
+    Сравнение модели с этим baseline отвечает на вопрос комиссии:
+    «А что, если просто предсказывать вчерашнее настроение — что вы выиграли?»
+    """
+    if y is None or len(y) < 3:
+        return None, None
+
+    y_true = np.asarray(y[1:], dtype=float)
+    y_pred = np.asarray(y[:-1], dtype=float)
+
+    mae = float(np.mean(np.abs(y_true - y_pred)))
+
+    ss_res = float(np.sum((y_true - y_pred) ** 2))
+    ss_tot = float(np.sum((y_true - np.mean(y_true)) ** 2))
+    r2     = 1.0 - ss_res / ss_tot if ss_tot > 1e-9 else 0.0
+
+    return round(mae, 3), round(r2, 3)
 
 
 # ─────────────────────────────────────────────────────────────
