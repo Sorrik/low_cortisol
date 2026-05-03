@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter
 
 from app.schemas.input import PredictRequest
-from app.schemas.output import PredictionResult, Influencer
+from app.schemas.output import PredictionResult, Influencer, ModelMeta
 from app.services.model_runtime import predict_mood
 from app.services.model_storage import get_model_meta
 from app.services.recommendations import generate_recommendations
@@ -94,9 +94,22 @@ async def predict(request: PredictRequest):
     meta = get_model_meta(user_id)
     model_version = meta.get("version", "v1") if meta else "v1"
 
+    model_meta = ModelMeta(
+        version             = model_version,
+        samples_used        = meta.get("samples")             if meta else None,
+        cv_status           = meta.get("cv_status")           if meta else None,
+        cv_mae              = meta.get("cv_mae")              if meta else None,
+        cv_r2               = meta.get("cv_r2")               if meta else None,
+        baseline_mae        = meta.get("baseline_mae")        if meta else None,
+        baseline_r2         = meta.get("baseline_r2")         if meta else None,
+        improvement_mae_pct = meta.get("improvement_mae_pct") if meta else None,
+    ) if meta else None
+
     logger.info(
         f"[{user_id}] -> mood={predicted_mood} [{lower}-{upper}], "
-        f"version={model_version}, recs={len(recommendations)}"
+        f"version={model_version}, "
+        f"cv_status={meta.get('cv_status') if meta else 'n/a'}, "
+        f"recs={len(recommendations)}"
     )
 
     return PredictionResult(
@@ -108,5 +121,6 @@ async def predict(request: PredictRequest):
         top_influencers=influencers,
         recommendations=recommendations,
         model_version=model_version,
+        model_meta=model_meta,
         data_completeness=completeness,
     )

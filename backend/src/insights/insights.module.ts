@@ -8,6 +8,7 @@ import { InsightsController }       from './insights.controller'
 import { CacheInvalidationService } from './cache-invalidation.service'
 import { RecommendationRulesService } from './recommendation-rules.service'
 import { AnomalyDetectionService } from './anomaly-detection.service'
+import { ConsistencyService }      from './consistency.service'
 import { MlModule }                 from '../ml/ml.module'
 import { LlmModule }                from '../llm/llm.module'
 
@@ -32,7 +33,7 @@ import { GamificationModule } from '../gamification/gamification.module'
     GamificationModule,
   ],
   controllers: [InsightsController],
-  providers:   [InsightsService, RecommendationRulesService, AnomalyDetectionService, CacheInvalidationService],
+  providers:   [InsightsService, RecommendationRulesService, AnomalyDetectionService, ConsistencyService, CacheInvalidationService],
   exports:    [CacheInvalidationService],
 })
 export class InsightsModule {}

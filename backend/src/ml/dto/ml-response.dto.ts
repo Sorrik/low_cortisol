@@ -1,10 +1,34 @@
 // dto/ml-response.dto.ts
 
 // ── Shared types ──────────────────────────────────────────────
-export type MetricType   = 'sleep' | 'food' | 'mood' | 'stress' | 'activity' | 'water'
-export type SeverityType = 'good' | 'attention' | 'alert'
-export type PhaseMode    = 'cold_start' | 'learning' | 'personal'
-export type Direction    = 'positive' | 'negative'
+export type MetricType        = 'sleep' | 'food' | 'mood' | 'stress' | 'activity' | 'water'
+export type SeverityType      = 'good' | 'attention' | 'alert'
+export type PhaseMode         = 'cold_start' | 'learning' | 'personal'
+export type Direction         = 'positive' | 'negative'
+export type TriggerSourceType = 'rule' | 'ml_shap' | 'llm' | 'consistency' | 'fallback'
+export type ConfidenceType    = 'low' | 'medium' | 'high'
+
+export class TriggerSignalDto {
+  source!:           TriggerSourceType
+  metric?:           MetricType | null
+  current_value?:    number | null
+  personal_baseline?: number | null
+  z_score?:          number | null
+  delta_7d?:         number | null
+  shap_contribution?: number | null
+  confidence?:       ConfidenceType | null
+}
+
+export class ModelMetaDto {
+  version?:             string | null
+  samples_used?:        number | null
+  cv_status?:           'ok' | 'insufficient_data' | null
+  cv_mae?:              number | null
+  cv_r2?:               number | null
+  baseline_mae?:        number | null
+  baseline_r2?:         number | null
+  improvement_mae_pct?: number | null
+}
 
 // ── Predict response ──────────────────────────────────────────
 export class PhaseInfoDto {
@@ -33,11 +57,14 @@ export class DataCompletenessDto {
   water!:     number
 }
 
-export class RecommendationDto {          // ← новый класс
-  metric!:      MetricType
-  severity!:    SeverityType
-  title!:       string
-  description!: string
+export class RecommendationDto {
+  id?:             string
+  metric!:         MetricType
+  severity!:       SeverityType
+  title!:          string
+  description!:    string
+  rule_id?:        string | null
+  trigger_signal?: TriggerSignalDto | null
 }
 
 export class MlPredictResponseDto {
@@ -47,8 +74,9 @@ export class MlPredictResponseDto {
   confidence_lower!:  number | null
   confidence_upper!:  number | null
   top_influencers!:   InfluencerDto[]
-  recommendations!:   RecommendationDto[]   // ← было string[]
+  recommendations!:   RecommendationDto[]
   model_version!:     string
+  model_meta?:        ModelMetaDto | null
   data_completeness!: DataCompletenessDto
 }
 

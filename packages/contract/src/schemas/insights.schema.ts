@@ -1,11 +1,48 @@
 // packages/contract/src/schemas/insights.schema.ts
 import { z } from 'zod';
 
+/**
+ * trigger_signal — структурированное «почему именно эта рекомендация».
+ * Все поля кроме source опциональные: легаси-правила без разметки несут
+ * только source='fallback'/'llm', свежие dual-axis правила и SHAP-канал
+ * заполняют current_value/personal_baseline/z_score/confidence.
+ */
+export const TriggerSignalSchema = z.object({
+  source:            z.enum(['rule', 'ml_shap', 'llm', 'consistency', 'fallback']),
+  metric:            z.enum(['sleep', 'food', 'mood', 'stress', 'activity', 'water']).nullish(),
+  current_value:     z.number().nullish(),
+  personal_baseline: z.number().nullish(),
+  z_score:           z.number().nullish(),
+  delta_7d:          z.number().nullish(),
+  shap_contribution: z.number().nullish(),
+  confidence:        z.enum(['low', 'medium', 'high']).nullish(),
+});
+
 export const RecommendationSchema = z.object({
-  metric:      z.enum(['sleep', 'food', 'mood', 'stress', 'activity', 'water']),
-  severity:    z.enum(['good', 'attention', 'alert']),
-  title:       z.string(),
-  description: z.string(),
+  id:             z.string().optional(),
+  metric:         z.enum(['sleep', 'food', 'mood', 'stress', 'activity', 'water']),
+  severity:       z.enum(['good', 'attention', 'alert']),
+  title:          z.string(),
+  description:    z.string(),
+  rule_id:        z.string().nullish(),
+  trigger_signal: TriggerSignalSchema.nullish(),
+});
+
+/**
+ * model_meta — метаинформация о модели, на которой основано предсказание.
+ * Идёт рядом с InsightsSchema.predicted_mood, чтобы клиент мог показать
+ * пользователю «модель ещё калибруется» при недостатке данных, и чтобы
+ * комиссия видела честные числа (cv_status, baseline_mae, improvement).
+ */
+export const ModelMetaSchema = z.object({
+  version:             z.string().nullish(),
+  samples_used:        z.number().nullish(),
+  cv_status:           z.enum(['ok', 'insufficient_data']).nullish(),
+  cv_mae:              z.number().nullish(),
+  cv_r2:               z.number().nullish(),
+  baseline_mae:        z.number().nullish(),
+  baseline_r2:         z.number().nullish(),
+  improvement_mae_pct: z.number().nullish(),
 });
 
 export const ArticleSourceSchema = z.object({
@@ -78,6 +115,7 @@ export const InsightsSchema = z.object({
   hasCriticalAlerts: z.boolean(),
   anomalyReport:     AnomalyReportSchema.optional(),
   model_version:     z.string(),
+  model_meta:        ModelMetaSchema.nullish(),
   data_completeness: z.object({
     sleep:     z.number(),
     mood:      z.number(),

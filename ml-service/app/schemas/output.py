@@ -52,6 +52,17 @@ class DataCompleteness(BaseModel):
 # PredictionResult — ответ /predict
 # ══════════════════════════════════════════════════════════════
 
+class ModelMeta(BaseModel):
+    version:             Optional[str]   = None
+    samples_used:        Optional[int]   = None
+    cv_status:           Optional[str]   = None    # "ok" | "insufficient_data"
+    cv_mae:              Optional[float] = None
+    cv_r2:               Optional[float] = None
+    baseline_mae:        Optional[float] = None
+    baseline_r2:         Optional[float] = None
+    improvement_mae_pct: Optional[float] = None
+
+
 class PredictionResult(BaseModel):
     user_id:           str
     phase:             PhaseInfo
@@ -61,6 +72,7 @@ class PredictionResult(BaseModel):
     top_influencers:   list[Influencer] = []
     recommendations:   list['Recommendation'] = []   # используем строку для forward reference
     model_version:     str = "rule_based"
+    model_meta:        Optional[ModelMeta] = None
     data_completeness: DataCompleteness
 
 class TriggerSignal(BaseModel):

@@ -10,7 +10,7 @@ import { MoreThanOrEqual, Repository } from 'typeorm'
 
 import { LlmService, RecommendationsResult, ArticleSource } from '../llm/llm.service'
 import { MlPrediction } from '../llm/prompt-builder'
-import { MlPredictResponseDto, RecommendationDto } from '../ml/dto/ml-response.dto'
+import { MlPredictResponseDto, ModelMetaDto, RecommendationDto } from '../ml/dto/ml-response.dto'
 import { MlService } from '../ml/ml.service'
 import { UserProfileService } from '../user-profile/user-profile.service'
 import { ActivityData } from '../activity/activity.entity'
@@ -20,6 +20,7 @@ import { SleepData } from '../sleep/sleep.entity'
 import { StressData } from '../stress/stress.entity'
 import { WaterData } from '../water/water.entity'
 import { AnomalyDetectionService, AnomalyReport } from './anomaly-detection.service'
+import { ConsistencyService, ConsistencySnapshot } from './consistency.service'
 import { MetricsAdapter } from './metrics-adapter'
 import { RecommendationRulesService, RuleResult } from './recommendation-rules.service'
 
@@ -29,6 +30,8 @@ export interface InsightsResponseDto extends MlPredictResponseDto {
   hasCriticalAlerts: boolean
   anomalyReport?: AnomalyReport
   mlRecommendations?: RecommendationDto[]
+  /** Расхождения между субъективными и объективными метриками (consistency.service). */
+  consistencyFlags?: ConsistencySnapshot['flags']
 }
 
 @Injectable()
@@ -49,6 +52,7 @@ export class InsightsService {
     private readonly rulesService: RecommendationRulesService,
     private readonly userProfileService: UserProfileService,
     private readonly anomalyService: AnomalyDetectionService,
+    private readonly consistencyService: ConsistencyService,
     @InjectRepository(SleepData)
     private readonly sleepRepo: Repository<SleepData>,
     @InjectRepository(MoodData)
@@ -87,6 +91,12 @@ export class InsightsService {
         `quality=${anomalyReport.dataQuality}%`,
       )
     }
+
+    // ── Cross-validation субъективных vs объективных метрик ──
+    // Если sleep_quality=8, а проспал 4 часа — confidence='low' для
+    // рекомендации по сну. Не цензурируем, но помечаем для UI и LLM.
+    const consistencyDays = this._buildConsistencyDays(healthData)
+    const consistency     = this.consistencyService.evaluate(consistencyDays)
 
     const rulesData = this._sliceHealthDataWindow(healthData, this.RULES_WINDOW_DAYS)
     const metrics = MetricsAdapter.fromInsightsData(
@@ -207,18 +217,63 @@ export class InsightsService {
       userProfile,
     )
 
+    // ── Финальная сборка: consistency + ids + model_meta + structured-trace ──
+    const today = new Date().toISOString().slice(0, 10)
+    const finalRecs = this._assignRecommendationIds(
+      this._applyConsistency(llmResult.recommendations, consistency),
+      today,
+    )
+    const finalMlRecs = this._assignRecommendationIds(
+      this._applyConsistency(pythonRecommendations, consistency),
+      today,
+    )
+    const modelMeta = this._extractModelMeta(prediction)
+
+    this._logRecommendationTrace(userId, {
+      phase: prediction.phase?.mode,
+      ml: {
+        predicted_mood: prediction.predicted_mood,
+        model_meta: modelMeta,
+        top_factors: (prediction.top_influencers ?? []).slice(0, 3).map(i => ({
+          factor: i.factor, impact: i.impact, direction: i.direction,
+        })),
+      },
+      consistency_flags: consistency.flags,
+      rules_triggered: ruleResults.map(r => r.ruleId),
+      ml_rule_ids: pythonRecommendations.map(r => r.rule_id).filter(Boolean),
+      final_count: finalRecs.length,
+    })
+
     const result: InsightsResponseDto = {
       ...prediction,
-      recommendations: llmResult.recommendations,
-      mlRecommendations: pythonRecommendations,
+      recommendations: finalRecs,
+      mlRecommendations: finalMlRecs,
       sources: llmResult.sources,
       ruleRecommendations: ruleResults,
       hasCriticalAlerts,
       anomalyReport,
+      consistencyFlags: consistency.flags,
+      model_meta: modelMeta,
     }
 
     await this.cache.set(predictCacheKey, result, this.PREDICT_TTL)
     return result
+  }
+
+  /**
+   * Structured trace одной записью: позволяет пост-фактум объяснить
+   * любую конкретную рекомендацию — какие правила сработали, что дала
+   * модель, какие consistency-флаги, итоговое количество. Пишется одной
+   * строкой JSON-метаданных, чтобы её можно было собирать в логах
+   * без парсинга свободного текста.
+   */
+  private _logRecommendationTrace(userId: string, trace: object): void {
+    try {
+      this.logger.log(`[trace] user=${userId} ${JSON.stringify(trace)}`)
+    } catch {
+      // не фатально — обрезанный лог лучше падения
+      this.logger.log(`[trace] user=${userId} <serialize-failed>`)
+    }
   }
 
   async invalidateCache(userId: string): Promise<void> {
@@ -398,6 +453,129 @@ export class InsightsService {
     collect(healthData.nutrition)
 
     return dates.size
+  }
+
+  /**
+   * Собирает массив дней (последние ≤7) с парами субъективные/объективные
+   * метрики для consistency.evaluate(). Сводит несколько источников в одну
+   * запись по дате.
+   */
+  private _buildConsistencyDays(healthData: any) {
+    const byDate = new Map<string, {
+      date: string
+      sleepHours?: number | null
+      sleepQuality?: number | null
+      interruptions?: number | null
+      mood?: number | null
+      stress?: number | null
+      activityMinutes?: number | null
+    }>()
+
+    const ensure = (date: string) => {
+      const key = String(date).slice(0, 10)
+      if (!byDate.has(key)) byDate.set(key, { date: key })
+      return byDate.get(key)!
+    }
+
+    for (const s of healthData.sleep ?? []) {
+      const d = ensure(s.date)
+      d.sleepHours    = s.duration_hours ?? null
+      d.sleepQuality  = s.quality ?? null
+      d.interruptions = s.interruptions ?? null
+    }
+    for (const m of healthData.mood ?? []) {
+      const d = ensure(m.date)
+      d.mood = m.mood_score ?? null
+    }
+    for (const s of healthData.stress ?? []) {
+      const d = ensure(s.date)
+      d.stress = s.level ?? null
+    }
+    for (const a of healthData.activity ?? []) {
+      const d = ensure(a.date)
+      d.activityMinutes = (d.activityMinutes ?? 0) + (a.duration_minutes ?? 0)
+    }
+
+    return [...byDate.values()].sort((x, y) => x.date.localeCompare(y.date)).slice(-7)
+  }
+
+  /**
+   * Понижает confidence в trigger_signal у рекомендации, если consistency.service
+   * пометил её метрику расхождением с объективными данными. Понижение происходит
+   * до уровня 'low' — выше уже проставлен (например, по samples baseline'а).
+   */
+  private _applyConsistency(
+    recommendations: RecommendationDto[],
+    consistency: ConsistencySnapshot,
+  ): RecommendationDto[] {
+    if (!recommendations?.length) return recommendations
+    const flags = consistency.flags
+    if (!flags || Object.keys(flags).length === 0) return recommendations
+
+    return recommendations.map(rec => {
+      // Метрика 'sleep' покрывает обе субъективные подметрики (duration+quality);
+      // mood и stress 1:1.
+      const flagKey =
+        rec.metric === 'sleep' ? 'sleep' :
+        rec.metric === 'mood'  ? 'mood'  :
+        rec.metric === 'stress'? 'stress': null
+      if (!flagKey) return rec
+
+      const flag = flags[flagKey]
+      if (!flag) return rec
+
+      const ts = rec.trigger_signal ?? { source: 'rule' as const, metric: rec.metric }
+      return {
+        ...rec,
+        trigger_signal: {
+          ...ts,
+          // Если в самой метрике есть расхождение с объективкой — снижаем confidence.
+          confidence: 'low' as const,
+        },
+        // Дополнение к описанию, чтобы пользователь видел причину снижения доверия.
+        description: rec.description
+          + ` (Замечено расхождение в данных: ${flag.reason}.)`,
+      }
+    })
+  }
+
+  /**
+   * Присваивает рекомендации стабильный id вида rule_id-YYYY-MM-DD.
+   * Для рекомендаций без rule_id — хеш от title+metric (короткий).
+   * id нужен для feedback endpoint'а в Wave 4 и для structured-trace.
+   */
+  private _assignRecommendationIds(
+    recommendations: RecommendationDto[],
+    today: string,
+  ): RecommendationDto[] {
+    return recommendations.map(rec => {
+      if (rec.id) return rec
+      const base = rec.rule_id
+        ? `${rec.rule_id}-${today}`
+        : `${rec.metric}-${createHash('sha1')
+            .update(rec.title + '|' + rec.description.slice(0, 80))
+            .digest('hex').slice(0, 10)}-${today}`
+      return { ...rec, id: base }
+    })
+  }
+
+  /**
+   * Достаёт metadata-поля модели из ответа ml-service.
+   * Если их нет (ml-service ещё не обновлён или fallback) — возвращает null.
+   */
+  private _extractModelMeta(prediction: MlPredictResponseDto): ModelMetaDto | null {
+    const m = (prediction as any)?.model_meta
+    if (!m) return null
+    return {
+      version:             m.version ?? prediction.model_version ?? null,
+      samples_used:        m.samples_used ?? null,
+      cv_status:           m.cv_status ?? null,
+      cv_mae:              m.cv_mae ?? null,
+      cv_r2:               m.cv_r2 ?? null,
+      baseline_mae:        m.baseline_mae ?? null,
+      baseline_r2:         m.baseline_r2 ?? null,
+      improvement_mae_pct: m.improvement_mae_pct ?? null,
+    }
   }
 
   private _buildRuleFallbackRecommendations(ruleResults: RuleResult[]): RecommendationDto[] {
