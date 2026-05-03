@@ -397,7 +397,9 @@ def build_features(data: HealthData, user_profile: Optional[Any] = None) -> Dict
 
     # Нормы
     sleep_dur_norm = [daily_norm[d].sleep_duration_h  for d in window_norm]
+    sleep_q_norm   = [daily_norm[d].sleep_quality     for d in window_norm]
     stress_norm    = [daily_norm[d].stress_level       for d in window_norm]
+    mood_norm      = [daily_norm[d].mood               for d in window_norm]
     act_min_norm   = [daily_norm[d].activity_minutes   for d in window_norm]
     water_norm     = [daily_norm[d].water_ml           for d in window_norm]
     calories_norm  = [daily_norm[d].calories           for d in window_norm]
@@ -714,6 +716,61 @@ def build_features(data: HealthData, user_profile: Optional[Any] = None) -> Dict
         _clip01(f["bed_hour_std"] / 3.0) * (min(f["stress_t"], 10.0) / 10.0)
     )
 
+    # ── Личные baseline'ы 30d + z-scores субъективных метрик ─────────────────
+    # Зачем: абсолютный порог «stress >= 7» одинаков для всех, но у одного
+    # человека «5/10 стресса» — норма, у другого — кризис. z-score по
+    # личной истории отвечает на вопрос «сегодня хуже обычного?».
+    #
+    # При этом z-score один НЕ закрывает всё: у человека с хронически высоким
+    # стрессом (baseline 9) z=0 будет всегда. Поэтому ниже ещё считаются
+    # абсолютные chronic-флаги и chronic_baseline_concern — рекомендация по
+    # ним идёт по другому правилу (см. recommendations.py / dual-axis alerts).
+    mood_norm_finite     = [v for v in mood_norm     if np.isfinite(v)]
+    stress_norm_finite   = [v for v in stress_norm   if np.isfinite(v)]
+    sleep_q_norm_finite  = [v for v in sleep_q_norm  if np.isfinite(v)]
+
+    f["mood_baseline_30d_mean"]        = _nanmean(mood_norm_finite)
+    f["mood_baseline_30d_std"]         = _nanstd(mood_norm_finite)
+    f["stress_baseline_30d_mean"]      = _nanmean(stress_norm_finite)
+    f["stress_baseline_30d_std"]       = _nanstd(stress_norm_finite)
+    f["sleep_q_baseline_30d_mean"]     = _nanmean(sleep_q_norm_finite)
+    f["sleep_q_baseline_30d_std"]      = _nanstd(sleep_q_norm_finite)
+
+    f["mood_baseline_30d_samples"]     = float(len(mood_norm_finite))
+    f["stress_baseline_30d_samples"]   = float(len(stress_norm_finite))
+    f["sleep_q_baseline_30d_samples"]  = float(len(sleep_q_norm_finite))
+
+    f["mood_z_t"]      = _z_score(f["mood_t"],          f["mood_baseline_30d_mean"],    f["mood_baseline_30d_std"],   min_samples=int(f["mood_baseline_30d_samples"]))
+    f["stress_z_t"]    = _z_score(f["stress_t"],        f["stress_baseline_30d_mean"],  f["stress_baseline_30d_std"], min_samples=int(f["stress_baseline_30d_samples"]))
+    f["sleep_q_z_t"]   = _z_score(f["sleep_quality_t"], f["sleep_q_baseline_30d_mean"], f["sleep_q_baseline_30d_std"],min_samples=int(f["sleep_q_baseline_30d_samples"]))
+
+    # ── Хронические флаги: «давно держится в опасной зоне» ───────────────────
+    # Срабатывают независимо от z-score. Закрывают кейс «человек привык к
+    # плохому» — у него baseline уже сдвинут, но это не значит, что всё ок.
+    f["chronic_high_stress_3d"]  = _chronic_streak_high(stress, threshold=8.0, min_days=3)
+    f["chronic_low_mood_3d"]     = _chronic_streak_low (mood,   threshold=4.0, min_days=3)
+    f["chronic_low_sleep_q_4d"]  = _chronic_streak_low (sleep_q, threshold=4.0, min_days=4)
+    f["chronic_short_sleep_2d"]  = _chronic_streak_low (sleep_dur, threshold=5.0, min_days=2)
+
+    # ── Chronic baseline concern: личная норма САМА в опасной зоне ───────────
+    # Если средний mood за месяц = 4 — это не «у тебя плохой день», это
+    # хронический паттерн. Подсказка LLM-промпту: рекомендация должна быть
+    # «обсуди со специалистом», а не «попробуй дыхательное упражнение».
+    enough_baseline = f["mood_baseline_30d_samples"] >= 7
+    f["chronic_baseline_mood_low"] = (
+        1.0 if (enough_baseline and 0 < f["mood_baseline_30d_mean"] <= 4.5) else 0.0
+    )
+
+    enough_stress_bl = f["stress_baseline_30d_samples"] >= 7
+    f["chronic_baseline_stress_high"] = (
+        1.0 if (enough_stress_bl and f["stress_baseline_30d_mean"] >= 7.5) else 0.0
+    )
+
+    enough_sleep_q_bl = f["sleep_q_baseline_30d_samples"] >= 7
+    f["chronic_baseline_sleep_q_low"] = (
+        1.0 if (enough_sleep_q_bl and 0 < f["sleep_q_baseline_30d_mean"] <= 4.5) else 0.0
+    )
+
     # ── Финальная чистка ──────────────────────────────────────
     for k, v in list(f.items()):
         if v is None or not np.isfinite(float(v)):
@@ -786,6 +843,60 @@ def _safe_div(a: float, b: float) -> float:
         return 0.0 if b == 0 else float(a) / float(b)
     except Exception:
         return 0.0
+
+
+def _z_score(value: float, mean: float, std: float, min_samples: int) -> float:
+    """
+    z-score значения относительно личной нормы. Возвращает 0.0, если:
+      - текущее значение пустое/NaN/0 (нет записи за день),
+      - данных в baseline'е < 7 дней (cold start — нельзя считать норму).
+
+    Std клампится снизу до 0.5, чтобы у пользователя со стабильной метрикой
+    (std≈0) маленький дрейф не давал гигантских z. На шкале 1–10 порог 0.5
+    эквивалентен «полпункта» — естественный шум самооценки.
+    """
+    if min_samples < 7:
+        return 0.0
+    if not np.isfinite(value) or value <= 0:
+        return 0.0
+    if not np.isfinite(mean) or mean <= 0:
+        return 0.0
+    safe_std = max(float(std), 0.5)
+    z = (float(value) - float(mean)) / safe_std
+    return float(z) if np.isfinite(z) else 0.0
+
+
+def _chronic_streak_high(values: List[float], threshold: float, min_days: int) -> float:
+    """
+    1.0, если последние min_days подряд значение >= threshold (без NaN-разрывов
+    среди этих min_days). Для «давно держится высоким» — стресс, и т.п.
+    """
+    return _chronic_streak(values, threshold, min_days, direction="high")
+
+
+def _chronic_streak_low(values: List[float], threshold: float, min_days: int) -> float:
+    """
+    1.0, если последние min_days подряд значение <= threshold (без NaN-разрывов).
+    Для «давно держится низким» — настроение, качество сна, длительность сна.
+    """
+    return _chronic_streak(values, threshold, min_days, direction="low")
+
+
+def _chronic_streak(
+    values: List[float],
+    threshold: float,
+    min_days: int,
+    direction: str,
+) -> float:
+    if not values or len(values) < min_days:
+        return 0.0
+    tail = values[-min_days:]
+    if any((not np.isfinite(v)) or v <= 0 for v in tail):
+        return 0.0
+    if direction == "high":
+        return 1.0 if all(float(v) >= threshold for v in tail) else 0.0
+    else:
+        return 1.0 if all(float(v) <= threshold for v in tail) else 0.0
 
 
 def _empty_feature_vector() -> Dict[str, float]:
