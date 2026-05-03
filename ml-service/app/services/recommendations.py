@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from app.schemas.input import HealthData
-from app.schemas.output import Recommendation          # ← новый импорт
+from app.schemas.output import Recommendation, TriggerSignal
 from app.services.feature_engineering import build_features
 
 logger = logging.getLogger(__name__)
@@ -149,18 +149,30 @@ def generate_recommendations(
     phase_mode: str,
     top_influencers: List[Dict],
     predicted_mood: Optional[float],
-) -> List[Recommendation]:                             # ← было List[str]
+) -> List[Recommendation]:
     """
-    Логика по фазе:
-      cold_start → только научные правила (данных мало)
-      learning   → правила + первые паттерны + SHAP если есть
-      personal   → SHAP + паттерны + долгосрочный анализ
+    Двухканальная генерация:
+
+    1. **dual_axis** — структурированные алерты по субъективным метрикам
+       (mood / stress / sleep_quality), используют личные baseline-30d,
+       z-score и chronic-флаги. Каждая такая рекомендация несёт rule_id
+       и trigger_signal, объясняющий, какой именно сигнал её зажёг.
+       Это основной ответ комиссии на «как метрика влияет на рекомендацию».
+
+    2. **legacy text** — текстовые рекомендации по фазе пользователя
+       (cold_start / learning / personal), включают SHAP, паттерны,
+       научные правила. У них rule_id=None и trigger_signal=None
+       (старые правила пока не размечены — миграция в Wave 4).
+
+    Финальный список: сначала dual_axis (приоритет — там реальный сигнал
+    с числом), потом legacy без дублей по metric, обрезанный до 6.
     """
     feats = build_features(data)
 
+    structured = _dual_axis_alerts(feats)
+
     if phase_mode == "cold_start":
         raw = _cold_start_recommendations(data, feats)[:4]
-
     elif phase_mode == "learning":
         raw = _deduplicate(
             _mood_forecast_line(predicted_mood)
@@ -168,7 +180,6 @@ def generate_recommendations(
             + _learning_correlations(data)
             + _cold_start_recommendations(data, feats)
         )[:5]
-
     else:  # personal
         raw = _deduplicate(
             _mood_forecast_line(predicted_mood)
@@ -177,7 +188,279 @@ def generate_recommendations(
             + _critical_alerts(feats)
         )[:6]
 
-    return _pack(raw, top_influencers)
+    legacy = _pack(raw, top_influencers)
+
+    return _merge_recommendations(structured, legacy, max_total=6)
+
+
+# ══════════════════════════════════════════════════════════════
+# Dual-axis alerts (relative z-score OR absolute thresholds)
+# ══════════════════════════════════════════════════════════════
+#
+# Принцип: одной оси недостаточно.
+# - Только z-score: у человека с baseline стресса 9 z всегда =0,
+#   система молчит, хотя именно ему нужна помощь.
+# - Только абсолютные пороги: у человека с baseline стресса 3 шум 5
+#   будет постоянно бить тревогу.
+# Поэтому объединяем по OR: личная норма (z) + клинические абсолюты.
+#
+# Таблица решений (Ось A = z-score >= 1.5, Ось B = chronic_*_flag):
+#   | Ось A | Ось B (chronic + baseline_concern) | severity | текст           |
+#   |-------|-------------------------------------|----------|-----------------|
+#   |   ✓   |              —                      | attention| «сегодня хуже…» |
+#   |   —   | chronic_3d/4d (норма ещё ок)       | alert    | «N дней подряд» |
+#   |   —   | chronic_baseline (норма в danger)  | alert    | «давно так?»    |
+#   |   ✓   |              ✓                      | alert    | «и хуже…, и…»  |
+
+Z_THRESHOLD = 1.5
+
+def _dual_axis_alerts(feats: Dict[str, float]) -> List[Recommendation]:
+    out: List[Recommendation] = []
+
+    stress_rec = _stress_dual_axis(feats)
+    if stress_rec:
+        out.append(stress_rec)
+
+    mood_rec = _mood_dual_axis(feats)
+    if mood_rec:
+        out.append(mood_rec)
+
+    sleep_q_rec = _sleep_q_dual_axis(feats)
+    if sleep_q_rec:
+        out.append(sleep_q_rec)
+
+    return out
+
+
+def _stress_dual_axis(feats: Dict[str, float]) -> Optional[Recommendation]:
+    z          = float(feats.get("stress_z_t", 0.0))
+    chronic_3d = feats.get("chronic_high_stress_3d", 0.0) == 1.0
+    baseline_c = feats.get("chronic_baseline_stress_high", 0.0) == 1.0
+
+    z_trig   = z >= Z_THRESHOLD
+    abs_trig = chronic_3d or baseline_c
+    if not (z_trig or abs_trig):
+        return None
+
+    current  = float(feats.get("stress_t", 0.0)) or None
+    baseline = float(feats.get("stress_baseline_30d_mean", 0.0)) or None
+    samples  = int(feats.get("stress_baseline_30d_samples", 0))
+
+    confidence = "high" if samples >= 21 else ("medium" if samples >= 7 else "low")
+
+    if baseline_c:
+        rule_id   = "stress_chronic_baseline"
+        severity  = "alert"
+        title     = f"Стресс уже долго держится высоким (твоя норма ≈ {round(baseline or 0, 1)}/10)"
+        body_extra = "и сегодня он выше обычного" if z_trig else ""
+        description = (
+            f"За последние 30 дней средний уровень стресса у тебя {round(baseline or 0, 1)}/10 — "
+            f"это хроническая зона. {body_extra} "
+            "Возможно, ты уже привык к этому фону и считаешь его нормой. "
+            "Имеет смысл обсудить это со специалистом (терапевт, психолог): "
+            "хронически высокий кортизол бьёт по сну, иммунитету и сердцу."
+        ).strip()
+    elif chronic_3d:
+        rule_id  = "stress_chronic_3d"
+        severity = "alert"
+        title    = "Стресс держится высоким третий день подряд"
+        body_extra = " и сегодня выше твоей обычной нормы" if z_trig else ""
+        description = (
+            f"Уровень стресса не опускается ниже 8/10 уже 3 дня"
+            f"{body_extra}. Сегодня: 20-минутная прогулка снижает кортизол ~30%, "
+            "и убери уведомления хотя бы на 2 часа. Если продолжится 5+ дней — "
+            "это сигнал, что нужно разбираться с источником."
+        )
+    else:
+        rule_id  = "stress_personal_spike"
+        severity = "attention"
+        delta = (current or 0) - (baseline or 0)
+        title = (
+            f"Сегодня стресс выше твоей обычной нормы "
+            f"({round(current or 0, 1)} против {round(baseline or 0, 1)}, +{round(delta, 1)})"
+        )
+        description = (
+            f"z-score {round(z, 2)}σ относительно последних 30 дней — заметная аномалия. "
+            "Что изменилось? Дедлайн, конфликт, недосып? "
+            "Дыхательная практика 5 минут (4-7-8) или короткая прогулка — "
+            "хороший быстрый ход."
+        )
+
+    return Recommendation(
+        metric="stress",
+        severity=severity,
+        title=title,
+        description=description,
+        rule_id=rule_id,
+        trigger_signal=TriggerSignal(
+            source="rule",
+            metric="stress",
+            current_value=current,
+            personal_baseline=baseline,
+            z_score=round(z, 3),
+            confidence=confidence,
+        ),
+    )
+
+
+def _mood_dual_axis(feats: Dict[str, float]) -> Optional[Recommendation]:
+    z = float(feats.get("mood_z_t", 0.0))
+    chronic_3d = feats.get("chronic_low_mood_3d", 0.0) == 1.0
+    baseline_c = feats.get("chronic_baseline_mood_low", 0.0) == 1.0
+
+    z_trig   = z <= -Z_THRESHOLD            # для настроения: ниже нормы = плохо
+    abs_trig = chronic_3d or baseline_c
+    if not (z_trig or abs_trig):
+        return None
+
+    current  = float(feats.get("mood_t", 0.0)) or None
+    baseline = float(feats.get("mood_baseline_30d_mean", 0.0)) or None
+    samples  = int(feats.get("mood_baseline_30d_samples", 0))
+
+    confidence = "high" if samples >= 21 else ("medium" if samples >= 7 else "low")
+
+    if baseline_c:
+        rule_id  = "mood_chronic_baseline"
+        severity = "alert"
+        title    = f"Настроение уже месяц держится низким (твоя норма ≈ {round(baseline or 0, 1)}/10)"
+        description = (
+            f"Среднее настроение за 30 дней {round(baseline or 0, 1)}/10 — это устойчиво "
+            "низкая зона, не отдельный плохой день. "
+            "Если такое состояние длится месяц и больше — это повод обратиться "
+            "к специалисту (терапевт/психотерапевт). "
+            "Это не диагноз, это сигнал, что одной самопомощи здесь мало."
+        )
+    elif chronic_3d:
+        rule_id  = "mood_chronic_3d"
+        severity = "alert"
+        title    = "Настроение низкое третий день подряд"
+        description = (
+            "Три дня подряд оценка ≤4/10 — это уже не разовый эпизод. "
+            "Прерви цикл одним маленьким приятным делом сегодня (прогулка, "
+            "звонок близкому, любимая еда). Если продлится неделю — стоит "
+            "поговорить со специалистом."
+        )
+    else:
+        rule_id  = "mood_personal_drop"
+        severity = "attention"
+        title = (
+            f"Сегодня настроение ниже твоей нормы "
+            f"({round(current or 0, 1)} против {round(baseline or 0, 1)})"
+        )
+        description = (
+            f"z-score {round(z, 2)}σ — заметное падение от твоего обычного уровня. "
+            "Часто помогает базовая последовательность: вода → еда → 15 минут движения "
+            "→ короткий контакт с близким человеком. В таком порядке."
+        )
+
+    return Recommendation(
+        metric="mood",
+        severity=severity,
+        title=title,
+        description=description,
+        rule_id=rule_id,
+        trigger_signal=TriggerSignal(
+            source="rule",
+            metric="mood",
+            current_value=current,
+            personal_baseline=baseline,
+            z_score=round(z, 3),
+            confidence=confidence,
+        ),
+    )
+
+
+def _sleep_q_dual_axis(feats: Dict[str, float]) -> Optional[Recommendation]:
+    z = float(feats.get("sleep_q_z_t", 0.0))
+    chronic_4d = feats.get("chronic_low_sleep_q_4d", 0.0) == 1.0
+    baseline_c = feats.get("chronic_baseline_sleep_q_low", 0.0) == 1.0
+
+    z_trig   = z <= -Z_THRESHOLD
+    abs_trig = chronic_4d or baseline_c
+    if not (z_trig or abs_trig):
+        return None
+
+    current  = float(feats.get("sleep_quality_t", 0.0)) or None
+    baseline = float(feats.get("sleep_q_baseline_30d_mean", 0.0)) or None
+    samples  = int(feats.get("sleep_q_baseline_30d_samples", 0))
+
+    confidence = "high" if samples >= 21 else ("medium" if samples >= 7 else "low")
+
+    if baseline_c:
+        rule_id  = "sleep_q_chronic_baseline"
+        severity = "alert"
+        title    = f"Качество сна стабильно низкое (твоя норма ≈ {round(baseline or 0, 1)}/10)"
+        description = (
+            f"За 30 дней среднее качество сна {round(baseline or 0, 1)}/10 — "
+            "это уже не «плохая ночь», это паттерн. "
+            "Проверь базу: отбой в одно и то же время, темнота, прохладная "
+            "комната (18–20°C), нет экранов за час до сна. Если 2 недели "
+            "ничего не меняется — обсуди со специалистом по сну."
+        )
+    elif chronic_4d:
+        rule_id  = "sleep_q_chronic_4d"
+        severity = "alert"
+        title    = "Сон плохой четыре ночи подряд"
+        description = (
+            "Четыре ночи подряд оценка качества ≤4/10. "
+            "Сегодня вечером: убери экраны за час до сна, проветри комнату, "
+            "никакого кофеина после обеда. Если есть привычка ужинать поздно — "
+            "перенеси ужин на 2+ часа до сна."
+        )
+    else:
+        rule_id  = "sleep_q_personal_drop"
+        severity = "attention"
+        title = (
+            f"Прошлая ночь хуже обычного "
+            f"({round(current or 0, 1)} против {round(baseline or 0, 1)})"
+        )
+        description = (
+            f"z-score {round(z, 2)}σ — ниже твоей обычной нормы. "
+            "Один такой эпизод — нормально. Если повторится 2-3 ночи — "
+            "поищи триггер: поздний ужин, кофеин, тренировка вечером, стресс."
+        )
+
+    return Recommendation(
+        metric="sleep",
+        severity=severity,
+        title=title,
+        description=description,
+        rule_id=rule_id,
+        trigger_signal=TriggerSignal(
+            source="rule",
+            metric="sleep",
+            current_value=current,
+            personal_baseline=baseline,
+            z_score=round(z, 3),
+            confidence=confidence,
+        ),
+    )
+
+
+def _merge_recommendations(
+    structured: List[Recommendation],
+    legacy:     List[Recommendation],
+    max_total:  int,
+) -> List[Recommendation]:
+    """
+    Объединяем dual-axis (с trigger_signal) и legacy-канал.
+    Структурированные впереди — у них есть конкретные числа и rule_id.
+    Из legacy берём те, чья метрика ещё не покрыта структурированными.
+
+    Это оставляет в выдаче «спорные» (legacy) рекомендации только когда
+    реально нет структурированной по этой метрике — иначе мы бы дублировали
+    «сегодня стресс выше нормы» и «🧘 стресс высокий».
+    """
+    seen_metrics = {r.metric for r in structured}
+    out = list(structured)
+    for rec in legacy:
+        if rec.metric in seen_metrics:
+            continue
+        out.append(rec)
+        seen_metrics.add(rec.metric)
+        if len(out) >= max_total:
+            break
+    return out[:max_total]
 
 
 # ══════════════════════════════════════════════════════════════

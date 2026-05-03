@@ -7,6 +7,8 @@ from typing import Literal
 
 MetricType  = Literal["sleep", "food", "mood", "stress", "activity", "water"]
 SeverityType = Literal["good", "attention", "alert"]
+TriggerSourceType = Literal["rule", "ml_shap", "llm", "consistency", "fallback"]
+ConfidenceType    = Literal["low", "medium", "high"]
 
 # ══════════════════════════════════════════════════════════════
 # PhaseInfo — фаза пользователя
@@ -61,8 +63,29 @@ class PredictionResult(BaseModel):
     model_version:     str = "rule_based"
     data_completeness: DataCompleteness
 
-class Recommendation(BaseModel):      # ← строка 64
-    metric:      MetricType           # ← строка 65 (с отступом в 4 пробела)
-    severity:    SeverityType
-    title:       str
-    description: str
+class TriggerSignal(BaseModel):
+    """
+    Что именно зажгло рекомендацию. Прямой ответ комиссии на вопрос
+    «как метрика влияет на рекомендацию» — числа, baseline, источник.
+
+    Все поля опциональные, чтобы не ломать обратную совместимость:
+    старые правила, которые ещё не размечены rule_id, могут заполнять
+    только source + metric + current_value.
+    """
+    source:            TriggerSourceType
+    metric:            Optional[MetricType]   = None
+    current_value:     Optional[float]        = None
+    personal_baseline: Optional[float]        = None
+    z_score:           Optional[float]        = None
+    delta_7d:          Optional[float]        = None
+    shap_contribution: Optional[float]        = None
+    confidence:        Optional[ConfidenceType] = None
+
+
+class Recommendation(BaseModel):
+    metric:         MetricType
+    severity:       SeverityType
+    title:          str
+    description:    str
+    rule_id:        Optional[str]           = None
+    trigger_signal: Optional[TriggerSignal] = None
