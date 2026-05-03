@@ -66,12 +66,39 @@ export interface WaterRecord {
 
 // ── Recommendations ───────────────────────────────────────────
 
+export type TriggerSource = 'rule' | 'ml_shap' | 'llm' | 'consistency' | 'fallback'
+export type Confidence    = 'low' | 'medium' | 'high'
+
+export interface TriggerSignal {
+  source:             TriggerSource
+  metric?:            MetricType | null
+  current_value?:     number | null
+  personal_baseline?: number | null
+  z_score?:           number | null
+  delta_7d?:          number | null
+  shap_contribution?: number | null
+  confidence?:        Confidence | null
+}
+
 export interface Recommendation {
-  id?:         string
-  metric:      MetricType
-  severity:    SeverityType
-  title:       string
-  description: string
+  id?:             string
+  metric:          MetricType
+  severity:        SeverityType
+  title:           string
+  description:     string
+  rule_id?:        string | null
+  trigger_signal?: TriggerSignal | null
+}
+
+export interface ModelMeta {
+  version?:             string | null
+  samples_used?:        number | null
+  cv_status?:           'ok' | 'insufficient_data' | null
+  cv_mae?:              number | null
+  cv_r2?:               number | null
+  baseline_mae?:        number | null
+  baseline_r2?:         number | null
+  improvement_mae_pct?: number | null
 }
 
 export interface RuleRecommendation {
@@ -140,6 +167,7 @@ export interface InsightsResponse {
   hasCriticalAlerts?: boolean
   anomalyReport?:     AnomalyReport
   model_version:     string
+  model_meta?:       ModelMeta | null
   data_completeness: DataCompleteness
 }
 
