@@ -5,6 +5,7 @@ import { ConfigService }      from '@nestjs/config'
 import OpenAI                 from 'openai'
 import {
   buildRecommendationPrompt,
+  detectInjection,
   extractHealthContext,
   MlPrediction,
 } from './prompt-builder'
@@ -71,6 +72,19 @@ export class LlmService {
       `ml_phase=${mlPrediction?.phase_mode ?? 'none'}, ` +
       `shap_factors=${mlPrediction?.top_influencers?.length ?? 0}`
     )
+
+    // Аудит-лог попыток prompt-injection через профиль пользователя.
+    // sanitizeForPrompt всё равно их вырежет, но мы хотим знать,
+    // что такая попытка была — и иметь возможность среагировать.
+    const profile = healthData?._user_profile ?? {}
+    for (const field of ['primary_goal', 'sport_goal', 'chronotype', 'activity_level']) {
+      const hit = detectInjection(profile?.[field])
+      if (hit) {
+        this.logger.warn(
+          `[safety] injection attempt in profile.${field}: "${hit}" — sanitized`,
+        )
+      }
+    }
 
     // ── RAG: находим релевантные статьи
     const healthContext = extractHealthContext(healthData)
