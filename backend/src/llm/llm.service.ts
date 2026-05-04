@@ -148,13 +148,104 @@ export class LlmService {
         `completion=${response.usage?.completion_tokens}`
       )
 
-      const recommendations = this._correctSeverities(this._parseResponse(raw), healthData)
+      let recommendations = this._parseResponse(raw)
+
+      // ── Safety post-processing (Wave 3) ─────────────────────────────────
+      // Порядок важен:
+      //   1) валидация PMID — иначе фильтр опасности может работать на тексте
+      //      с галлюцинированной ссылкой;
+      //   2) фильтр опасных советов — может ПОДМЕНИТЬ description, потому
+      //      идёт до severity-коррекции;
+      //   3) severity коррекция — уже на чистом тексте.
+      const allowedPmids = new Set(articles.map(a => String(a.pmid)))
+      recommendations = this._stripUnknownPmidRefs(recommendations, allowedPmids)
+      recommendations = this._filterDangerousAdvice(recommendations)
+      recommendations = this._correctSeverities(recommendations, healthData)
       return { recommendations, sources }
 
     } catch (err) {
       this.logger.error(`[getRecommendations] OpenAI error: ${err}`)
       throw err
     }
+  }
+
+  // ── Safety: PMID валидация ────────────────────────────────────────────
+  //
+  // LLM может сослаться на статью маркером [N], где N — порядковый номер
+  // в нашем списке. Иногда модель выдумывает новые номера ([7] при 3
+  // статьях), и фронт строит URL europepmc.org/article/MED/{выдуманный}.
+  // Здесь сверяем, что N действительно есть в retrieved-наборе по позиции
+  // (1..articles.length). Если нет — удаляем маркер из description, чтобы
+  // пользователь не вёл по битой ссылке.
+
+  private _stripUnknownPmidRefs(
+    recs: RecommendationDto[],
+    allowedPmids: Set<string>,
+  ): RecommendationDto[] {
+    const allowedIndices = new Set<number>(
+      Array.from({ length: allowedPmids.size }, (_, i) => i + 1),
+    )
+
+    return recs.map(rec => {
+      const cleaned = rec.description.replace(/\[(\d+)\]/g, (match, num) => {
+        const n = Number(num)
+        if (allowedIndices.has(n)) return match
+        this.logger.warn(
+          `[safety] stripped unknown PMID ref [${n}] from rule_id=${rec.rule_id ?? '-'} ` +
+          `(allowed: 1..${allowedPmids.size})`,
+        )
+        return ''
+      }).replace(/\s{2,}/g, ' ').trim()
+
+      return cleaned === rec.description ? rec : { ...rec, description: cleaned }
+    })
+  }
+
+  // ── Safety: фильтр опасных советов ─────────────────────────────────────
+  //
+  // Health-app не имеет права рекомендовать лекарства, голодание, отказ
+  // от воды или экстремальные тренировки. Системный промпт запрещает это,
+  // но мы не можем полагаться только на промпт — добавляем серверный
+  // фильтр на ключевые опасные паттерны. При срабатывании:
+  //   - description заменяется на безопасный шаблон;
+  //   - severity сохраняется (метрика всё ещё может требовать внимания);
+  //   - случай логируется для последующего разбора и подкручивания промпта.
+
+  // ВАЖНО: regex без \b — в JS без флага u кириллица не входит в \w,
+  // поэтому \b даёт ложноотрицательные совпадения на стыке русского
+  // слова и пробела. Для фильтра «осторожнее = лучше».
+  private static readonly DANGEROUS_PATTERNS: { pattern: RegExp; reason: string }[] = [
+    { pattern: /(голодай(те)?|голодан\w*|поголод\w+)/i,                                    reason: 'fasting_advice' },
+    { pattern: /(прими(те)?|выпей(те)?|купи(те)?)\s+(витамин\w*|таблетк\w*|лекарств\w*|добавк\w*|снотворн\w*|антидепрессант\w*|транквилизатор\w*)/i, reason: 'medication_advice' },
+    { pattern: /(прекрати(те)?|перестан(ь|ьте)|откажись(?:\s+от)?)\s+пить\s+воду/i,        reason: 'water_restriction' },
+    { pattern: /(трениров\w*|занят\w*|тренируй(?:тесь|ся))\s+(больше|более)\s+\d+\s*час/i, reason: 'extreme_exercise' },
+    { pattern: /(не\s+ешь(те)?|пропусти(те)?\s+приё?м|откажись(?:\s+от)?\s+(еды|пищи))/i,  reason: 'skip_meals_advice' },
+    { pattern: /(прекрати(те)?\s+принимать|отмени(те)?)\s+(лекарств\w*|таблетк\w*|препарат\w*)/i, reason: 'stop_medication_advice' },
+  ]
+
+  private _filterDangerousAdvice(recs: RecommendationDto[]): RecommendationDto[] {
+    return recs.map(rec => {
+      for (const { pattern, reason } of LlmService.DANGEROUS_PATTERNS) {
+        if (pattern.test(rec.description) || pattern.test(rec.title)) {
+          this.logger.error(
+            `[safety] dangerous advice blocked: reason=${reason}, ` +
+            `metric=${rec.metric}, rule_id=${rec.rule_id ?? '-'}, ` +
+            `title="${rec.title.slice(0, 60)}"`,
+          )
+          return {
+            ...rec,
+            title: 'Совет требует обсуждения со специалистом',
+            description:
+              'По этой метрике система предлагала шаг, который мы не показываем без ' +
+              'консультации врача (приём препаратов, голодание, экстремальные нагрузки и т.п.). ' +
+              'Если по этой теме есть вопросы — обсудите их с терапевтом или специалистом.',
+            // Помечаем, что severity не должна повышаться: это не повод алёртить.
+            severity: rec.severity === 'alert' ? 'attention' : rec.severity,
+          }
+        }
+      }
+      return rec
+    })
   }
 
   // ── Постобработка severity ────────────────────────────────
