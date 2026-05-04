@@ -1,4 +1,5 @@
 import { Controller, UseGuards, Request } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
 import { healthContract } from '@lowcor/contract';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -10,6 +11,7 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 @ApiTags('Sleep')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard)
+@Throttle({ medium: { limit: 30, ttl: 60_000 } })
 @Controller()
 export class SleepController {
   constructor(private readonly sleepService: SleepService) {}

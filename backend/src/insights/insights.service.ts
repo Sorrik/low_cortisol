@@ -707,8 +707,11 @@ export class InsightsService {
       this.activityRepo
         .createQueryBuilder('a')
         .select('a.date', 'date')
-        .addSelect('SUM(a.durationMinutes)', 'totalminutes')
-        .addSelect('SUM(a.caloriesBurned)', 'totalcalories')
+        // COALESCE: PostgreSQL SUM() возвращает NULL при пустом наборе
+        // строк в группе (из-за фильтра caloriesBurned IS NULL и т.п.).
+        // Без этого NULL прорастает в metrics-adapter и ломает _nanmean.
+        .addSelect('COALESCE(SUM(a.durationMinutes), 0)', 'totalminutes')
+        .addSelect('COALESCE(SUM(a.caloriesBurned), 0)', 'totalcalories')
         .addSelect('MAX(a.time)', 'lastactivitytime')
         .addSelect(`
           CASE
@@ -731,7 +734,7 @@ export class InsightsService {
       this.waterRepo
         .createQueryBuilder('w')
         .select('w.date', 'date')
-        .addSelect('SUM(w.amountMl)', 'totalml')
+        .addSelect('COALESCE(SUM(w.amountMl), 0)', 'totalml')
         .where('w.userId = :userId', { userId })
         .andWhere('w.date >= :since', { since: sinceStr })
         .groupBy('w.date')
