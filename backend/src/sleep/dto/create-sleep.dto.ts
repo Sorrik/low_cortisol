@@ -1,18 +1,24 @@
-import { IsDateString, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
+import { IsDateString, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsRecentDate } from '../../common/validators/is-recent-date';
+
+const TIME_REGEX = /^([01]?\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
 
 export class CreateSleepDto {
   @ApiProperty({ example: '2026-02-19' })
   @IsDateString()
+  @IsRecentDate()
   date!: string;
 
   @ApiProperty({ example: '23:00' })
   @IsString()
-  bedTime!: string;  // ← убрали @Matches — БД хранит HH:MM:SS
+  @Matches(TIME_REGEX, { message: 'bedTime must be HH:MM or HH:MM:SS' })
+  bedTime!: string;
 
   @ApiProperty({ example: '07:00' })
   @IsString()
-  wakeTime!: string;  // ← убрали @Matches
+  @Matches(TIME_REGEX, { message: 'wakeTime must be HH:MM or HH:MM:SS' })
+  wakeTime!: string;
 
   @ApiProperty({ example: 8, minimum: 1, maximum: 10 })
   @IsInt()
@@ -24,14 +30,19 @@ export class CreateSleepDto {
   @IsOptional()
   @IsInt()
   @Min(0)
-  interruptions?: number | null;  // ← добавили null
+  @Max(30)
+  interruptions?: number | null;
 
   @ApiPropertyOptional({ example: 'Спал хорошо' })
   @IsOptional()
   @IsString()
-  notes?: string | null;  // ← добавили null
+  @MaxLength(2000)
+  notes?: string | null;
 
   @ApiPropertyOptional({ example: 7.5 })
   @IsOptional()
-  durationHours?: number | null;  // ← добавили поле
+  @IsNumber()
+  @Min(0)
+  @Max(18)
+  durationHours?: number | null;
 }

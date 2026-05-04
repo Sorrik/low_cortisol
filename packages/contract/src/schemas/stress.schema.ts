@@ -1,11 +1,12 @@
 import { z } from 'zod'
+import { RecentDateSchema, TimeOfDaySchema } from './_shared'
 
 export const StressSchema = z.object({
   id:             z.string().uuid().optional(),
-  date:           z.string(),
-  time:           z.string(),                         // HH:MM:SS из БД
+  date:           RecentDateSchema,
+  time:           TimeOfDaySchema,
   level:          z.number().int().min(1).max(10),
-  cause:          z.string().nullable().optional(),   // ← добавить
-  copingStrategy: z.string().nullable().optional(),   // ← добавить
-  notes:          z.string().nullable().optional(),
+  cause:          z.string().max(200).nullable().optional(),
+  copingStrategy: z.string().max(200).nullable().optional(),
+  notes:          z.string().max(2000).nullable().optional(),
 })
