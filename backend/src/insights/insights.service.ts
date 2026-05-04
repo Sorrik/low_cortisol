@@ -32,7 +32,19 @@ export interface InsightsResponseDto extends MlPredictResponseDto {
   mlRecommendations?: RecommendationDto[]
   /** Расхождения между субъективными и объективными метриками (consistency.service). */
   consistencyFlags?: ConsistencySnapshot['flags']
+  /** Юридический disclaimer — клиент должен показать рядом с рекомендациями. */
+  disclaimer?: string
 }
+
+/**
+ * Disclaimer обязателен для health-сервиса: рекомендации не являются
+ * медицинским советом. Хранится здесь, потому что текст один и относится
+ * ко всему ответу, а не к конкретной рекомендации.
+ */
+const HEALTH_DISCLAIMER =
+  'Рекомендации сформированы автоматически по введённым данным и не являются ' +
+  'медицинским советом. При жалобах на здоровье, длительно сниженном настроении ' +
+  'или хроническом стрессе обратитесь к специалисту (терапевт, психолог).'
 
 @Injectable()
 export class InsightsService {
@@ -254,6 +266,7 @@ export class InsightsService {
       anomalyReport,
       consistencyFlags: consistency.flags,
       model_meta: modelMeta,
+      disclaimer: HEALTH_DISCLAIMER,
     }
 
     await this.cache.set(predictCacheKey, result, this.PREDICT_TTL)

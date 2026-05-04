@@ -589,6 +589,13 @@ export default function RecommendationsPage() {
         )}
 
         <SourcesSection sources={sources} />
+
+        {insights?.disclaimer ? (
+          <div className="flex items-start gap-3 rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>{insights.disclaimer}</p>
+          </div>
+        ) : null}
       </main>
     </div>
   )

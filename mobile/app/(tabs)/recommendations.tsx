@@ -736,6 +736,14 @@ export default function RecommendationsScreen() {
         ) : null}
 
         <SourcesSection sources={sources} />
+
+        {insights?.disclaimer ? (
+          <View style={styles.disclaimerBox}>
+            <Ionicons name="alert-circle-outline" size={14} color={colors.mutedForeground} />
+            <Text style={styles.disclaimerText}>{insights.disclaimer}</Text>
+          </View>
+        ) : null}
+
         <View style={{ height: Spacing.xxl }} />
       </ScrollView>
     </SafeAreaView>
@@ -1279,5 +1287,23 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   whyMuted: {
     color: colors.mutedForeground,
     fontSize: FontSize.xs,
+  },
+  disclaimerBox: {
+    marginTop: Spacing.lg,
+    marginHorizontal: Spacing.md,
+    padding: Spacing.md,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.xs,
+    borderRadius: BorderRadius.md,
+    backgroundColor: colors.cardHover,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  disclaimerText: {
+    flex: 1,
+    fontSize: FontSize.xs,
+    lineHeight: 16,
+    color: colors.mutedForeground,
   },
 })

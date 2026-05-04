@@ -138,6 +138,7 @@ export interface InsightsResponse {
   anomalyReport?:    AnomalyReport
   model_version?:    string
   model_meta?:       ModelMeta | null
+  disclaimer?:       string
   data_completeness?: DataCompleteness
 }
 

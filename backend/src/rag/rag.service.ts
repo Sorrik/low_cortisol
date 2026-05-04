@@ -67,6 +67,15 @@ export class RagService implements OnModuleInit {
   private readonly TOP_K = 3
   private readonly RECONNECT_COOLDOWN_MS = 60_000
 
+  /**
+   * Cosine-distance в ChromaDB для нерелевантных статей быстро уходит к ~1.
+   * Берём верхнюю границу: всё с distance > этого значения считаем
+   * нерелевантным и не отдаём в LLM. На семантически близких статьях
+   * distance обычно < 0.5–0.7. 0.85 — порог между «может пригодиться» и
+   * «явный шум». Можно переопределить через env RAG_MAX_DISTANCE.
+   */
+  private readonly maxDistance: number
+
   constructor(private readonly config: ConfigService) {
     const chromaUrl = this.config.get<string>('CHROMA_URL', 'http://chromadb:8000')
     this.client = makeChromaClient(chromaUrl)
@@ -75,6 +84,9 @@ export class RagService implements OnModuleInit {
       this.config.get<string>('OPENAI_API_KEY', ''),
       this.config.get<string>('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
     )
+
+    const raw = Number(this.config.get<string>('RAG_MAX_DISTANCE', '0.85'))
+    this.maxDistance = Number.isFinite(raw) && raw > 0 ? raw : 0.85
   }
 
   async onModuleInit() {
@@ -150,6 +162,7 @@ export class RagService implements OnModuleInit {
   private _deduplicateAndRank(results: any): RelevantArticle[] {
     const seen = new Set<string>()
     const articles: RelevantArticle[] = []
+    let droppedCount = 0
 
     const docsList = results.documents ?? []
     const metasList = results.metadatas ?? []
@@ -164,9 +177,18 @@ export class RagService implements OnModuleInit {
         const meta = metas[i] as any
         const pmid = meta?.pmid
         if (!pmid || seen.has(pmid)) continue
+
+        const distance = Number(dists[i] ?? 1)
+
+        // Distance threshold: нерелевантные статьи в LLM-промпт не идут.
+        // Без этого LLM может процитировать явный шум как «исследование».
+        if (distance > this.maxDistance) {
+          droppedCount++
+          continue
+        }
+
         seen.add(pmid)
 
-        const distance = dists[i] ?? 1
         const relevance = Math.max(0, 1 - distance / 2)
         const doc = docs[i] ?? ''
         const abstract = doc.replace(/^Title:.*?\n\nAbstract:\s*/s, '').slice(0, 800)
@@ -181,6 +203,12 @@ export class RagService implements OnModuleInit {
           relevance: Math.round(relevance * 100) / 100,
         })
       }
+    }
+
+    if (droppedCount > 0) {
+      this.logger.log(
+        `[rag] dropped ${droppedCount} articles by distance > ${this.maxDistance}`,
+      )
     }
 
     return articles.sort((a, b) => b.relevance - a.relevance).slice(0, 3)

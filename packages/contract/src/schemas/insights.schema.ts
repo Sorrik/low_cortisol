@@ -116,6 +116,8 @@ export const InsightsSchema = z.object({
   anomalyReport:     AnomalyReportSchema.optional(),
   model_version:     z.string(),
   model_meta:        ModelMetaSchema.nullish(),
+  /** Юридический disclaimer — клиент обязан показать рядом с рекомендациями. */
+  disclaimer:        z.string().nullish(),
   data_completeness: z.object({
     sleep:     z.number(),
     mood:      z.number(),
