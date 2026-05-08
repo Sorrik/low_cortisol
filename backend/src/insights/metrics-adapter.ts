@@ -38,6 +38,8 @@ export class MetricsAdapter {
     opts?: {
       bodyWeightKg?: number
       goalCalories?: number
+      minCalories?:  number
+      maxCalories?:  number
       totalDataDays?: number
     },
   ): UserMetrics {
@@ -114,6 +116,8 @@ export class MetricsAdapter {
       totalDataDays,
       bodyWeightKg:    opts?.bodyWeightKg,
       goalCalories:    opts?.goalCalories,
+      minCalories:     opts?.minCalories,
+      maxCalories:     opts?.maxCalories,
     }
   }
 

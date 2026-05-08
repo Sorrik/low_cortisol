@@ -98,6 +98,34 @@ def _nanstd(x: Iterable[float]) -> float:
     return float(s) if np.isfinite(s) else 0.0
 
 
+def _nanmedian(x: Iterable[float]) -> float:
+    arr = np.array(list(x), dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return 0.0
+    return float(np.median(arr))
+
+
+def _nanmad(x: Iterable[float]) -> float:
+    """
+    Median Absolute Deviation: MAD = median(|x_i - median(x)|).
+
+    Используется как робастная альтернатива std для baseline'а:
+      - не «съезжает» от одного выброса (один тяжёлый день не сдвигает норму),
+      - симметрично работает по обе стороны от центра.
+
+    Возвращает 0.0 на пустом или константном входе.
+    """
+    arr = np.array(list(x), dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if arr.size <= 1:
+        return 0.0
+    med = float(np.median(arr))
+    deviations = np.abs(arr - med)
+    mad = float(np.median(deviations))
+    return mad if np.isfinite(mad) else 0.0
+
+
 def _clip01(v: float) -> float:
     return float(max(0.0, min(1.0, v)))
 
@@ -731,18 +759,36 @@ def build_features(data: HealthData, user_profile: Optional[Any] = None) -> Dict
 
     f["mood_baseline_30d_mean"]        = _nanmean(mood_norm_finite)
     f["mood_baseline_30d_std"]         = _nanstd(mood_norm_finite)
+    f["mood_baseline_30d_median"]      = _nanmedian(mood_norm_finite)
+    f["mood_baseline_30d_mad"]         = _nanmad(mood_norm_finite)
     f["stress_baseline_30d_mean"]      = _nanmean(stress_norm_finite)
     f["stress_baseline_30d_std"]       = _nanstd(stress_norm_finite)
+    f["stress_baseline_30d_median"]    = _nanmedian(stress_norm_finite)
+    f["stress_baseline_30d_mad"]       = _nanmad(stress_norm_finite)
     f["sleep_q_baseline_30d_mean"]     = _nanmean(sleep_q_norm_finite)
     f["sleep_q_baseline_30d_std"]      = _nanstd(sleep_q_norm_finite)
+    f["sleep_q_baseline_30d_median"]   = _nanmedian(sleep_q_norm_finite)
+    f["sleep_q_baseline_30d_mad"]      = _nanmad(sleep_q_norm_finite)
 
     f["mood_baseline_30d_samples"]     = float(len(mood_norm_finite))
     f["stress_baseline_30d_samples"]   = float(len(stress_norm_finite))
     f["sleep_q_baseline_30d_samples"]  = float(len(sleep_q_norm_finite))
 
+    # ── Классические z-scores (mean + std) ──
     f["mood_z_t"]      = _z_score(f["mood_t"],          f["mood_baseline_30d_mean"],    f["mood_baseline_30d_std"],   min_samples=int(f["mood_baseline_30d_samples"]))
     f["stress_z_t"]    = _z_score(f["stress_t"],        f["stress_baseline_30d_mean"],  f["stress_baseline_30d_std"], min_samples=int(f["stress_baseline_30d_samples"]))
     f["sleep_q_z_t"]   = _z_score(f["sleep_quality_t"], f["sleep_q_baseline_30d_mean"], f["sleep_q_baseline_30d_std"],min_samples=int(f["sleep_q_baseline_30d_samples"]))
+
+    # ── Робастные z-scores (median + MAD) ──
+    # На коротких пользовательских историях один экстремальный день
+    # может составлять до 1/15 окна, что заметно сдвигает mean/std.
+    # Робастная версия использует median и MAD — оба нечувствительны
+    # к одиночным выбросам. Используется в downstream-правилах как
+    # дополнительный сигнал; mean-версия сохранена для обратной
+    # совместимости с уже обученными моделями.
+    f["mood_z_robust_t"]    = _z_score_robust(f["mood_t"],          f["mood_baseline_30d_median"],    f["mood_baseline_30d_mad"],    min_samples=int(f["mood_baseline_30d_samples"]))
+    f["stress_z_robust_t"]  = _z_score_robust(f["stress_t"],        f["stress_baseline_30d_median"],  f["stress_baseline_30d_mad"],  min_samples=int(f["stress_baseline_30d_samples"]))
+    f["sleep_q_z_robust_t"] = _z_score_robust(f["sleep_quality_t"], f["sleep_q_baseline_30d_median"], f["sleep_q_baseline_30d_mad"], min_samples=int(f["sleep_q_baseline_30d_samples"]))
 
     # ── Хронические флаги: «давно держится в опасной зоне» ───────────────────
     # Срабатывают независимо от z-score. Закрывают кейс «человек привык к
@@ -863,6 +909,31 @@ def _z_score(value: float, mean: float, std: float, min_samples: int) -> float:
         return 0.0
     safe_std = max(float(std), 0.5)
     z = (float(value) - float(mean)) / safe_std
+    return float(z) if np.isfinite(z) else 0.0
+
+
+def _z_score_robust(value: float, median: float, mad: float, min_samples: int) -> float:
+    """
+    Modified z-score (Iglewicz & Hoaglin) на основе медианы и MAD:
+        z_robust = 0.6745 * (x - median) / MAD
+
+    Константа 0.6745 = 1/Φ⁻¹(0.75): для нормального распределения
+    приводит MAD к шкале std, поэтому пороги |z| > 2 интерпретируются
+    одинаково для обоих вариантов. Робастная версия не «портится» от
+    выбросов, что критично для коротких пользовательских историй, где
+    один аномальный день может составлять 1/15–1/30 окна.
+
+    MAD клампится снизу до 0.5 по той же причине, что и std в _z_score
+    (полпункта на шкале 1–10 — естественный шум самооценки).
+    """
+    if min_samples < 7:
+        return 0.0
+    if not np.isfinite(value) or value <= 0:
+        return 0.0
+    if not np.isfinite(median) or median <= 0:
+        return 0.0
+    safe_mad = max(float(mad), 0.5)
+    z = 0.6745 * (float(value) - float(median)) / safe_mad
     return float(z) if np.isfinite(z) else 0.0
 
 

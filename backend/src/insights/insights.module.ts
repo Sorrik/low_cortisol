@@ -6,6 +6,7 @@ import { TypeOrmModule } from '@nestjs/typeorm'
 import { InsightsService }          from './insights.service'
 import { InsightsController }       from './insights.controller'
 import { CacheInvalidationService } from './cache-invalidation.service'
+import { CalorieThresholdsService } from './calorie-thresholds.service'
 import { RecommendationRulesService } from './recommendation-rules.service'
 import { AnomalyDetectionService } from './anomaly-detection.service'
 import { ConsistencyService }      from './consistency.service'
@@ -18,6 +19,7 @@ import { StressData }    from '../stress/stress.entity'
 import { ActivityData }  from '../activity/activity.entity'
 import { WaterData }     from '../water/water.entity'
 import { NutritionData } from '../nutrition/nutrition.entity'
+import { RecommendationFeedback } from './recommendation-feedback.entity'
 import { UserProfileModule } from '../user-profile/user-profile.module'
 import { GamificationModule } from '../gamification/gamification.module'
 
@@ -26,6 +28,7 @@ import { GamificationModule } from '../gamification/gamification.module'
     TypeOrmModule.forFeature([
       SleepData, MoodData, StressData,
       ActivityData, WaterData, NutritionData,
+      RecommendationFeedback,
     ]),
     MlModule,
     LlmModule,
@@ -33,7 +36,7 @@ import { GamificationModule } from '../gamification/gamification.module'
     GamificationModule,
   ],
   controllers: [InsightsController],
-  providers:   [InsightsService, RecommendationRulesService, AnomalyDetectionService, ConsistencyService, CacheInvalidationService],
+  providers:   [InsightsService, RecommendationRulesService, AnomalyDetectionService, ConsistencyService, CacheInvalidationService, CalorieThresholdsService],
   exports:    [CacheInvalidationService],
 })
 export class InsightsModule {}

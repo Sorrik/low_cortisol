@@ -116,6 +116,12 @@ export class UserProfileService {
       avgWorkoutDurationMin: p?.avgWorkoutDurationMin ?? 0,
       sportGoal: p?.sportGoal ?? null,
       weeklyTrainingMinutes: (p?.workoutsPerWeek ?? 0) * (p?.avgWorkoutDurationMin ?? 0),
+      // Поля для расчёта индивидуальных порогов калорий по Mifflin-St Jeor.
+      // Хранятся опционально (профиль может быть не заполнен), сервис
+      // CalorieThresholdsService обрабатывает null'ы через популяционные
+      // средние.
+      ageRange: p?.ageRange ?? null,
+      gender: p?.gender ?? null,
     }
   }
 

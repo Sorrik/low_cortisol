@@ -41,7 +41,13 @@ export interface UserMetrics {
   // Дополнительно
   totalDataDays:   number       // всего дней с данными в системе
   bodyWeightKg?:   number       // если задан профиль
-  goalCalories?:   number       // цель по калориям из профиля
+
+  // Индивидуальные пороги калорий (Mifflin-St Jeor по профилю).
+  // Если не заданы — используются NORMS.* как fallback для незаполненных
+  // или анонимных профилей.
+  goalCalories?:   number       // целевое потребление = TDEE
+  minCalories?:    number       // нижний порог дефицита
+  maxCalories?:    number       // верхний порог профицита
 }
 
 /** Результат одного сработавшего правила */
@@ -152,12 +158,15 @@ export class RecommendationRulesService {
 
   private checkCalorieDeficit(m: UserMetrics): RuleResult | null {
     const target = m.goalCalories ?? NORMS.TARGET_CALORIES
+    const minCal = m.minCalories  ?? NORMS.MIN_CALORIES
     if (m.nutritionDays < NORMS.MIN_LOG_DAYS) return null
-    if (m.avgCalories >= NORMS.MIN_CALORIES)  return null
+    if (m.avgCalories >= minCal)              return null
 
     const gap     = target - m.avgCalories
     const pctGap  = Math.round((gap / target) * 100)
-    const severity: Severity = m.avgCalories < 1200 ? 'critical' : 'warning'
+    // Critical при отклонении ≥ 25% от индивидуального target'а — это
+    // ~75% TDEE, та же граница, по которой считается minCalories.
+    const severity: Severity = m.avgCalories < target * 0.6 ? 'critical' : 'warning'
 
     return {
       ruleId:        'nutrition.calorie_deficit',
@@ -168,17 +177,18 @@ export class RecommendationRulesService {
       suggestion:    `Добавь 1–2 питательных перекуса: орехи, яйца, творог. Дефицит ${gap} ккал/день истощает энергию и ухудшает настроение.`,
       priority:      severity === 'critical' ? 95 : 80,
       metricValue:   m.avgCalories,
-      threshold:     NORMS.MIN_CALORIES,
+      threshold:     minCal,
       deltaFromNorm: m.avgCalories - target,
       tags:          ['nutrition', 'energy', 'mood-impact'],
     }
   }
 
   private checkCalorieSurplus(m: UserMetrics): RuleResult | null {
+    const maxCal = m.maxCalories ?? NORMS.MAX_CALORIES
     if (m.nutritionDays < NORMS.MIN_LOG_DAYS) return null
-    if (m.avgCalories <= NORMS.MAX_CALORIES)  return null
+    if (m.avgCalories <= maxCal)              return null
 
-    const surplus = Math.round(m.avgCalories - NORMS.MAX_CALORIES)
+    const surplus = Math.round(m.avgCalories - maxCal)
 
     return {
       ruleId:        'nutrition.calorie_surplus',
@@ -189,8 +199,8 @@ export class RecommendationRulesService {
       suggestion:    'Замени ультрапроцессированные продукты на цельные: меньше хлеба, больше овощей и белка.',
       priority:      55,
       metricValue:   m.avgCalories,
-      threshold:     NORMS.MAX_CALORIES,
-      deltaFromNorm: m.avgCalories - NORMS.MAX_CALORIES,
+      threshold:     maxCal,
+      deltaFromNorm: m.avgCalories - maxCal,
       tags:          ['nutrition', 'weight'],
     }
   }
@@ -535,10 +545,12 @@ export class RecommendationRulesService {
   // ═══════════════════════════════════════════════════════════════
 
   private checkSleepNutritionCombo(m: UserMetrics): RuleResult | null {
+    const minCal = m.minCalories  ?? NORMS.MIN_CALORIES
+    const target = m.goalCalories ?? NORMS.TARGET_CALORIES
     // Мало сна И мало калорий — двойной удар по энергии
-    if (m.avgSleepHours >= NORMS.MIN_SLEEP)      return null
-    if (m.avgCalories   >= NORMS.MIN_CALORIES)   return null
-    if (m.nutritionDays < NORMS.MIN_LOG_DAYS)    return null
+    if (m.avgSleepHours >= NORMS.MIN_SLEEP)   return null
+    if (m.avgCalories   >= minCal)            return null
+    if (m.nutritionDays < NORMS.MIN_LOG_DAYS) return null
 
     return {
       ruleId:        'combo.sleep_nutrition',
@@ -549,8 +561,8 @@ export class RecommendationRulesService {
       suggestion:    'Добавь калорийный завтрак до 10:00 — он компенсирует часть усталости от недосыпа.',
       priority:      90,
       metricValue:   m.avgCalories,
-      threshold:     NORMS.MIN_CALORIES,
-      deltaFromNorm: m.avgCalories - NORMS.TARGET_CALORIES,
+      threshold:     minCal,
+      deltaFromNorm: m.avgCalories - target,
       tags:          ['combo', 'sleep', 'nutrition', 'energy'],
     }
   }
@@ -580,7 +592,7 @@ export class RecommendationRulesService {
     // Всё хорошо — дать позитивное подкрепление
     const allGood =
       m.avgSleepHours   >= NORMS.TARGET_SLEEP_LOW  &&
-      m.avgCalories     >= NORMS.MIN_CALORIES       &&
+      m.avgCalories     >= (m.minCalories ?? NORMS.MIN_CALORIES) &&
       m.avgActivityMins >= NORMS.TARGET_ACTIVITY    &&
       m.avgStressLevel  <= 5                         &&
       m.avgMoodScore    >= 7
