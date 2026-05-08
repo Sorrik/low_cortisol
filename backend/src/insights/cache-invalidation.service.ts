@@ -28,10 +28,34 @@ export class CacheInvalidationService {
     @InjectRepository(NutritionData) private readonly nutritionRepo: Repository<NutritionData>,
   ) {}
 
+  /** TTL для timestamp'а последней инвалидации — должен пережить LLM_TTL (6ч)
+   *  и быть достаточно большим, чтобы значение не «исчезло» из кэша
+   *  раньше, чем мы успеем построить с ним новый hash. */
+  private readonly METRIC_UPDATED_TTL_SECONDS = 60 * 60 * 24 * 7 // 7 дней
+
   async invalidate(userId: string): Promise<void> {
     await this.cache.del(`predict:${userId}`)
     await this.cache.del(`train:${userId}`)
-    this.logger.log(`[cache] cleared -> ${userId}`)
+
+    // LLM-кэш `llm:${userId}:${stateHash}` нельзя удалить wildcard'ом
+    // (cache-manager этого не умеет на in-memory store), поэтому вместо
+    // удаления мы перезаписываем «версию» пользователя — она входит в
+    // stateHash, поэтому новый запрос построит новый ключ, а старые
+    // ключи естественно истекут по LLM_TTL.
+    await this.cache.set(
+      `metric_updated_at:${userId}`,
+      Date.now(),
+      this.METRIC_UPDATED_TTL_SECONDS * 1000,
+    )
+
+    this.logger.log(`[cache] cleared -> ${userId} (predict+train, llm rotated)`)
+  }
+
+  /** Вспомогательный геттер для InsightsService, чтобы вкладывать
+   *  «версию метрик» в LLM stateHash. */
+  async getMetricUpdatedAt(userId: string): Promise<number> {
+    const value = await this.cache.get<number>(`metric_updated_at:${userId}`)
+    return typeof value === 'number' ? value : 0
   }
 
   async invalidateWithMetric(userId: string, date: string): Promise<void> {

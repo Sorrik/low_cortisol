@@ -19,7 +19,11 @@ import { NutritionData } from '../nutrition/nutrition.entity'
 import { SleepData } from '../sleep/sleep.entity'
 import { StressData } from '../stress/stress.entity'
 import { WaterData } from '../water/water.entity'
+import { CreateFeedbackDto, FeedbackResponseDto } from './dto/feedback.dto'
+import { RecommendationFeedback } from './recommendation-feedback.entity'
 import { AnomalyDetectionService, AnomalyReport } from './anomaly-detection.service'
+import { CacheInvalidationService } from './cache-invalidation.service'
+import { CalorieThresholdsService } from './calorie-thresholds.service'
 import { ConsistencyService, ConsistencySnapshot } from './consistency.service'
 import { MetricsAdapter } from './metrics-adapter'
 import { RecommendationRulesService, RuleResult } from './recommendation-rules.service'
@@ -65,6 +69,8 @@ export class InsightsService {
     private readonly userProfileService: UserProfileService,
     private readonly anomalyService: AnomalyDetectionService,
     private readonly consistencyService: ConsistencyService,
+    private readonly cacheInvalidationService: CacheInvalidationService,
+    private readonly calorieThresholdsService: CalorieThresholdsService,
     @InjectRepository(SleepData)
     private readonly sleepRepo: Repository<SleepData>,
     @InjectRepository(MoodData)
@@ -77,7 +83,33 @@ export class InsightsService {
     private readonly waterRepo: Repository<WaterData>,
     @InjectRepository(NutritionData)
     private readonly nutritionRepo: Repository<NutritionData>,
+    @InjectRepository(RecommendationFeedback)
+    private readonly feedbackRepo: Repository<RecommendationFeedback>,
   ) {}
+
+  /**
+   * Сохраняет оценку пользователя по конкретной рекомендации.
+   * Дубли по (user_id, rule_id) допускаются — пользователь может
+   * передумать и оценить ту же рекомендацию по-другому при повторном
+   * показе. История сохраняется полностью для аналитики.
+   */
+  async recordFeedback(
+    userId: string,
+    dto: CreateFeedbackDto,
+  ): Promise<FeedbackResponseDto> {
+    const entity = this.feedbackRepo.create({
+      userId,
+      ruleId: dto.ruleId,
+      rating: dto.rating,
+      comment: dto.comment ?? null,
+      recommendationSnapshot: dto.recommendationSnapshot ?? null,
+    })
+    const saved = await this.feedbackRepo.save(entity)
+    this.logger.log(
+      `[feedback] user=${userId} rule=${dto.ruleId} rating=${dto.rating}`,
+    )
+    return { id: saved.id, createdAt: saved.createdAt.toISOString() }
+  }
 
   async getInsights(userId: string): Promise<InsightsResponseDto> {
     this.logger.log(`[getInsights] userId=${userId}`)
@@ -110,6 +142,19 @@ export class InsightsService {
     const consistencyDays = this._buildConsistencyDays(healthData)
     const consistency     = this.consistencyService.evaluate(consistencyDays)
 
+    // Индивидуальные пороги калорий (Mifflin-St Jeor по данным профиля).
+    // Если в профиле нет gender/age/activity — сервис вернёт популяционный
+    // fallback, что лучше захардкоженных 1500/2000/3000 для всех.
+    const calorieThresholds = this.calorieThresholdsService.compute({
+      gender:        userProfile.gender,
+      ageRange:      userProfile.ageRange,
+      activityLevel: userProfile.activityLevel,
+    })
+    this.logger.log(
+      `[calories] BMR=${calorieThresholds.bmr}, TDEE=${calorieThresholds.tdee}, ` +
+      `min=${calorieThresholds.minCalories}, max=${calorieThresholds.maxCalories}`,
+    )
+
     const rulesData = this._sliceHealthDataWindow(healthData, this.RULES_WINDOW_DAYS)
     const metrics = MetricsAdapter.fromInsightsData(
       rulesData.sleep.map(s => ({
@@ -134,6 +179,9 @@ export class InsightsService {
       ],
       {
         totalDataDays: this._countUniqueDays(healthData),
+        goalCalories:  calorieThresholds.targetCalories,
+        minCalories:   calorieThresholds.minCalories,
+        maxCalories:   calorieThresholds.maxCalories,
       },
     )
 
@@ -210,12 +258,18 @@ export class InsightsService {
         }
       : null
 
+    // metric_updated_at — timestamp последнего POST/PATCH/DELETE метрики
+    // (см. CacheInvalidationService.invalidate). Включаем в hash, чтобы
+    // после изменения метрики llm-кэш не возвращал устаревший ответ.
+    const metricUpdatedAt = await this.cacheInvalidationService.getMetricUpdatedAt(userId)
+
     const llmStateHash = this._buildLlmStateHash(
       metrics,
       ruleResults,
       userProfile,
       mlPrediction,
       anomalyReport,
+      metricUpdatedAt,
     )
 
     const llmResult = await this._getLlmRecommendations(
@@ -372,8 +426,13 @@ export class InsightsService {
     userProfile: Awaited<ReturnType<UserProfileService['getProfileForMl']>>,
     mlPrediction: MlPrediction | null,
     anomalyReport: AnomalyReport,
+    metricUpdatedAt: number,
   ): string {
     const snapshot = {
+      // Версия данных пользователя — каждое POST/PATCH/DELETE метрики
+      // обновляет timestamp в CacheInvalidationService, что меняет hash и
+      // отделяет старый llm-кэш от свежего без wildcard-удаления ключей.
+      metricUpdatedAt,
       metrics: {
         avgSleepHours: +metrics.avgSleepHours.toFixed(2),
         avgCalories: Math.round(metrics.avgCalories),
