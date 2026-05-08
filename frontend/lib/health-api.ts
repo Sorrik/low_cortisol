@@ -159,6 +159,22 @@ export const getInsights        = (): Promise<InsightsResponse> =>
 export const getRecommendations = () =>
   api.get<{ data: Recommendation[] }>("/insights/recommendations").then(getData)
 
+export type FeedbackRating = "helpful" | "not_helpful"
+export interface FeedbackPayload {
+  ruleId: string
+  rating: FeedbackRating
+  comment?: string
+  recommendationSnapshot?: Record<string, unknown>
+}
+export interface FeedbackResponse {
+  id: string
+  createdAt: string
+}
+export const submitRecommendationFeedback = (
+  payload: FeedbackPayload,
+): Promise<FeedbackResponse> =>
+  api.post("/insights/feedback", payload).then((r) => r.data)
+
 // ── Sleep ─────────────────────────────────────────────────
 export const getSleepRecords    = () =>
   api.get("/sleep").then(r => getData<any>(r).map(mapSleep))

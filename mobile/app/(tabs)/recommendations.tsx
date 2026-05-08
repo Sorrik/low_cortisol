@@ -21,7 +21,8 @@ import { AnomalyBanner } from '@/components/dashboard/AnomalyBanner'
 import { ProgressBar } from '@/components/dashboard/ProgressBar'
 import { BorderRadius, FontSize, FontWeight, Spacing } from '@/constants/theme'
 import { useTheme } from '@/context/ThemeContext'
-import { getInsights } from '@/lib/health-api'
+import { getInsights, submitRecommendationFeedback } from '@/lib/health-api'
+import type { FeedbackRating } from '@/lib/health-api'
 import { ColorPalette, useThemedStyles } from '@/lib/useThemedStyles'
 import { useAuthStore } from '@/store/auth.store'
 import type { ArticleSource, Recommendation, MetricType } from '@/types/health'
@@ -401,6 +402,8 @@ function RecommendationCard({
                     </View>
                   </View>
                 ) : null}
+                <FeedbackButtons rec={rec} />
+
                 <View style={styles.recFooter}>
                   <Ionicons name="information-circle-outline" size={16} color={colors.mutedForeground} />
                   <Text style={styles.recAction}>Ссылки на исследования доступны внизу экрана.</Text>
@@ -411,6 +414,80 @@ function RecommendationCard({
         </Animated.View>
       </TouchableOpacity>
     </AnimatedCard>
+  )
+}
+
+/**
+ * Кнопки оценки рекомендации в мобильной карточке. Отдельный компонент,
+ * чтобы локальное состояние (отправлено / в процессе / ошибка) не вызывало
+ * перерендер всей карточки. После успешной отправки кнопки заменяются на
+ * текст подтверждения; повторно оценить можно после рефреша списка.
+ */
+function FeedbackButtons({ rec }: { rec: Recommendation }) {
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
+  const [submitted, setSubmitted] = useState<FeedbackRating | null>(null)
+  const [isSending, setIsSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const ruleId = (rec as Recommendation & { rule_id?: string | null }).rule_id
+    || `llm.${(rec as Recommendation & { id?: string }).id ?? 'unknown'}`
+
+  const handle = async (rating: FeedbackRating) => {
+    if (submitted || isSending) return
+    setIsSending(true)
+    setError(null)
+    try {
+      await submitRecommendationFeedback({
+        ruleId,
+        rating,
+        recommendationSnapshot: rec as unknown as Record<string, unknown>,
+      })
+      setSubmitted(rating)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось отправить оценку')
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  if (submitted) {
+    return (
+      <View style={styles.feedbackBlock}>
+        <Text style={styles.feedbackAck}>
+          Спасибо за оценку — это поможет нам улучшать рекомендации.
+        </Text>
+      </View>
+    )
+  }
+
+  return (
+    <View style={styles.feedbackBlock}>
+      <Text style={styles.feedbackLabel}>Полезна?</Text>
+      <View style={styles.feedbackButtons}>
+        <TouchableOpacity
+          style={[styles.feedbackButton, isSending ? styles.feedbackButtonDisabled : null]}
+          disabled={isSending}
+          onPress={() => handle('helpful')}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="thumbs-up-outline" size={14} color={colors.foreground} />
+          <Text style={styles.feedbackButtonText}>Да</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.feedbackButton, isSending ? styles.feedbackButtonDisabled : null]}
+          disabled={isSending}
+          onPress={() => handle('not_helpful')}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="thumbs-down-outline" size={14} color={colors.foreground} />
+          <Text style={styles.feedbackButtonText}>Нет</Text>
+        </TouchableOpacity>
+      </View>
+      {error ? (
+        <Text style={styles.feedbackError}>{error}</Text>
+      ) : null}
+    </View>
   )
 }
 
@@ -1161,6 +1238,50 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     fontSize: FontSize.xs,
     color: colors.mutedForeground,
     fontWeight: FontWeight.medium,
+  },
+  feedbackBlock: {
+    paddingTop: Spacing.sm,
+    marginTop: Spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  feedbackLabel: {
+    fontSize: FontSize.xs,
+    color: colors.mutedForeground,
+    fontWeight: FontWeight.medium,
+    marginBottom: 6,
+  },
+  feedbackButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  feedbackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  feedbackButtonDisabled: {
+    opacity: 0.5,
+  },
+  feedbackButtonText: {
+    fontSize: FontSize.xs,
+    color: colors.foreground,
+    fontWeight: FontWeight.medium,
+  },
+  feedbackAck: {
+    fontSize: FontSize.xs,
+    color: colors.mutedForeground,
+  },
+  feedbackError: {
+    marginTop: 6,
+    fontSize: FontSize.xs,
+    color: colors.destructive,
   },
   sourcesSection: {
     backgroundColor: colors.card,

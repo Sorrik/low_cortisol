@@ -20,6 +20,8 @@ import {
   ExternalLink,
   ChevronDown,
   Activity,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
@@ -27,7 +29,8 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { AnomalyBanner } from "@/components/dashboard/anomaly-banner"
 import { getAccessToken } from "@/lib/auth-store"
-import { getInsights } from "@/lib/health-api"
+import { getInsights, submitRecommendationFeedback } from "@/lib/health-api"
+import type { FeedbackRating } from "@/lib/health-api"
 import type { ArticleSource, InsightsResponse, Recommendation } from "@/types/health"
 
 type MetricType = "sleep" | "food" | "mood" | "stress" | "activity" | "water"
@@ -311,7 +314,79 @@ function RecommendationCard({ rec, sources }: { rec: Recommendation; sources: Ar
             ))}
           </div>
         ) : null}
+
+        <FeedbackButtons rec={rec} />
       </div>
+    </div>
+  )
+}
+
+/**
+ * Кнопки оценки рекомендации (полезна / не полезна). После клика
+ * кнопки отключаются и показывается ack-сообщение. Состояние локальное
+ * (в памяти страницы) — повторно оценить можно после обновления списка.
+ */
+function FeedbackButtons({ rec }: { rec: Recommendation }) {
+  const [submitted, setSubmitted] = useState<FeedbackRating | null>(null)
+  const [isSending, setIsSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Используем rule_id если есть, иначе временный id (LLM-рекомендации без ruleId).
+  const ruleId = (rec as Recommendation & { rule_id?: string | null }).rule_id
+    || `llm.${(rec as Recommendation & { id?: string }).id ?? "unknown"}`
+
+  const handle = async (rating: FeedbackRating) => {
+    if (submitted || isSending) return
+    setIsSending(true)
+    setError(null)
+    try {
+      await submitRecommendationFeedback({
+        ruleId,
+        rating,
+        recommendationSnapshot: rec as unknown as Record<string, unknown>,
+      })
+      setSubmitted(rating)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось отправить оценку")
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  if (submitted) {
+    return (
+      <div className="mt-4 border-t border-border/60 pt-4 text-xs text-muted-foreground">
+        Спасибо за оценку — это поможет нам улучшать рекомендации.
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
+      <span className="text-xs font-medium text-muted-foreground">Полезна?</span>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={isSending}
+        onClick={() => handle("helpful")}
+        className="h-8 gap-1.5 px-3 text-xs"
+      >
+        <ThumbsUp className="h-3.5 w-3.5" />
+        Да
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={isSending}
+        onClick={() => handle("not_helpful")}
+        className="h-8 gap-1.5 px-3 text-xs"
+      >
+        <ThumbsDown className="h-3.5 w-3.5" />
+        Нет
+      </Button>
+      {error ? (
+        <span className="text-xs text-rose-400">{error}</span>
+      ) : null}
     </div>
   )
 }

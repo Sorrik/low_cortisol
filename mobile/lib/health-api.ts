@@ -140,6 +140,22 @@ export const getInsights         = () =>
   api.get<InsightsResponse>('/insights/me', { timeout: 35_000 }).then(r => r.data)
 export const getGamification     = () => api.get<GamificationDto>('/gamification').then(r => r.data)
 
+export type FeedbackRating = 'helpful' | 'not_helpful'
+export interface FeedbackPayload {
+  ruleId: string
+  rating: FeedbackRating
+  comment?: string
+  recommendationSnapshot?: Record<string, unknown>
+}
+export interface FeedbackResponse {
+  id: string
+  createdAt: string
+}
+export const submitRecommendationFeedback = (
+  payload: FeedbackPayload,
+): Promise<FeedbackResponse> =>
+  api.post('/insights/feedback', payload).then(r => r.data)
+
 // ── POST ──────────────────────────────────────────────────
 export const createSleep     = (data: any) => api.post('/sleep',     data).then(r => r.data)
 export const createStress    = (data: any) => api.post('/stress',    data).then(r => r.data)
