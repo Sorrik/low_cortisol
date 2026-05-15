@@ -104,6 +104,7 @@ interface DailyAggregate {
   eveningVigorousFlag: boolean
   // nutrition
   totalCalories: number | null
+  totalProtein: number | null   // суммарный белок за день, граммы
   totalFat: number | null
   lateMealCalories: number      // ккал в приёмах после 21:00 (того же дня)
   lateMealFat: number           // граммы жира в этих приёмах
@@ -338,6 +339,9 @@ export class CausalChainService {
     const totalCalories = nutritionRecs.length
       ? nutritionRecs.reduce((s, r) => s + (r.calories || 0), 0)
       : null
+    const totalProtein = nutritionRecs.length
+      ? nutritionRecs.reduce((s, r) => s + (r.protein_grams || 0), 0)
+      : null
     const totalFat = nutritionRecs.length
       ? nutritionRecs.reduce((s, r) => s + (r.fat_grams || 0), 0)
       : null
@@ -366,6 +370,7 @@ export class CausalChainService {
       activityVigorousMinutes,
       eveningVigorousFlag,
       totalCalories,
+      totalProtein,
       totalFat,
       lateMealCalories,
       lateMealFat,
@@ -607,23 +612,56 @@ export class CausalChainService {
 
   /**
    * A4: protein avg < 50g И mood_7d_mean < 5 (same-day window).
-   * Дефицит предшественников нейромедиаторов.
+   * Дефицит триптофана/тирозина → ↓серотонин/дофамин.
    */
   private _detectA4(ctx: ChainContext): CausalChain | null {
     const last7 = ctx.days.slice(-7)
     if (last7.length < 5) return null
 
-    // protein извлекаем через сумму nutrition.protein_grams — её мы не агрегировали;
-    // пересчитаем здесь по аналогии с totalCalories.
-    // В DailyAggregate мы не сохраняли protein_g, поэтому используем приближение
-    // через total_fat и calories. Так как точные g protein нам не доступны в ctx —
-    // выходим, если данных недостаточно.
-    // Для A4 нужна сумма белков из nutrition; реализуем через consumer-сводку.
-    // (Пока возвращаем null — детектор подключается, когда добавим protein
-    // в DailyAggregate. Не блокируем остальные.)
-    void last7
-    void ctx
-    return null
+    const proteinVals = last7
+      .map(d => d.totalProtein)
+      .filter((v): v is number => v !== null && Number.isFinite(v))
+    const moodVals = last7
+      .map(d => d.mood)
+      .filter((v): v is number => v !== null && Number.isFinite(v))
+    if (proteinVals.length < 4 || moodVals.length < 4) return null
+
+    const avgProtein = proteinVals.reduce((s, v) => s + v, 0) / proteinVals.length
+    const avgMood    = moodVals.reduce((s, v) => s + v, 0) / moodVals.length
+
+    if (avgProtein >= 50 || avgMood >= 5) return null
+
+    const margin = Math.min((50 - avgProtein) / 50, (5 - avgMood) / 5)
+    const coverage = this._coverage(ctx, 7, [d => d.totalProtein, d => d.mood])
+    const strength = this._strengthFor(margin, coverage, false)
+
+    const today = this._today(ctx)
+    if (!today) return null
+
+    return {
+      chainId:        'A4',
+      category:       'nutrition_mood',
+      strength,
+      trigger: {
+        metric:      'nutrition',
+        date:        today.date,
+        value:       Math.round(avgProtein),
+        unit:        'г/день',
+        description: `белок ${Math.round(avgProtein)}г/день при норме ~80г (за 7 дней)`,
+      },
+      outcome: {
+        metric:      'mood',
+        date:        today.date,
+        value:       roundTo(avgMood),
+        unit:        '/10',
+        description: `среднее настроение ${roundTo(avgMood)}/10 за 7 дней`,
+      },
+      lagDescription: 'за 7 дней',
+      mechanism:      'дефицит триптофана/тирозина → ↓серотонин/дофамин',
+      recommendation: `Белок ${Math.round(avgProtein)}г/день, настроение ${roundTo(avgMood)}/10. Добавь 2 яйца (12г) + творог 100г (15г) на завтрак — это +27г белка в самое нужное время суток.`,
+      priority:       strength === 'strong' ? 76 : 62,
+      tags:           ['nutrition', 'mood', 'protein', 'chronic'],
+    }
   }
 
   // ──────────────────────────────────────────────────────────────────

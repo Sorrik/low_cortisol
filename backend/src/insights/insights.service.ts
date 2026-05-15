@@ -9,7 +9,7 @@ import { Cache } from 'cache-manager'
 import { MoreThanOrEqual, Repository } from 'typeorm'
 
 import { LlmService, RecommendationsResult, ArticleSource } from '../llm/llm.service'
-import { MlPrediction } from '../llm/prompt-builder'
+import { MlPrediction, UserFeedbackSummary } from '../llm/prompt-builder'
 import { MlPredictResponseDto, ModelMetaDto, RecommendationDto } from '../ml/dto/ml-response.dto'
 import { MlService } from '../ml/ml.service'
 import { UserProfileService } from '../user-profile/user-profile.service'
@@ -114,6 +114,64 @@ export class InsightsService {
       `[feedback] user=${userId} rule=${dto.ruleId} rating=${dto.rating}`,
     )
     return { id: saved.id, createdAt: saved.createdAt.toISOString() }
+  }
+
+  /**
+   * Сводка оценок пользователя за последние 30 дней. Передаётся в LLM-prompt
+   * как сигнал «какие категории / шаблоны рекомендаций сработали хорошо,
+   * а какие пользователь явно отверг» — см. правило 12 system prompt.
+   *
+   * Категория извлекается из rule_id по схеме «{category}.{rule_name}»
+   * (например, sleep.short_sleep → sleep). Для llm-сгенерированных
+   * советов rule_id вида llm.{hash} категория = 'llm'.
+   */
+  private async _getFeedbackSummary(userId: string): Promise<UserFeedbackSummary> {
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const rows = await this.feedbackRepo.find({
+      where: { userId, createdAt: MoreThanOrEqual(since) },
+      select: ['ruleId', 'rating'],
+    })
+
+    const empty: UserFeedbackSummary = {
+      totalCount: 0,
+      byCategoryHelpful: {},
+      byCategoryNotHelpful: {},
+      topNotHelpfulRuleIds: [],
+      topHelpfulRuleIds: [],
+    }
+    if (rows.length === 0) return empty
+
+    const categoryOf = (ruleId: string): string => {
+      const dot = ruleId.indexOf('.')
+      return dot > 0 ? ruleId.slice(0, dot) : ruleId
+    }
+
+    const ruleHelpful    = new Map<string, number>()
+    const ruleNotHelpful = new Map<string, number>()
+    const catHelpful     = new Map<string, number>()
+    const catNotHelpful  = new Map<string, number>()
+
+    for (const r of rows) {
+      const cat = categoryOf(r.ruleId)
+      const map = r.rating === 'helpful' ? ruleHelpful : ruleNotHelpful
+      const cmap = r.rating === 'helpful' ? catHelpful : catNotHelpful
+      map.set(r.ruleId, (map.get(r.ruleId) ?? 0) + 1)
+      cmap.set(cat, (cmap.get(cat) ?? 0) + 1)
+    }
+
+    const topN = (m: Map<string, number>, n: number) =>
+      [...m.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, n)
+        .map(([ruleId, count]) => ({ ruleId, count }))
+
+    return {
+      totalCount: rows.length,
+      byCategoryHelpful:    Object.fromEntries(catHelpful),
+      byCategoryNotHelpful: Object.fromEntries(catNotHelpful),
+      topHelpfulRuleIds:    topN(ruleHelpful, 3),
+      topNotHelpfulRuleIds: topN(ruleNotHelpful, 3),
+    }
   }
 
   async getInsights(userId: string): Promise<InsightsResponseDto> {
@@ -295,6 +353,8 @@ export class InsightsService {
     // после изменения метрики llm-кэш не возвращал устаревший ответ.
     const metricUpdatedAt = await this.cacheInvalidationService.getMetricUpdatedAt(userId)
 
+    const feedbackSummary = await this._getFeedbackSummary(userId)
+
     const llmStateHash = this._buildLlmStateHash(
       metrics,
       ruleResults,
@@ -303,6 +363,7 @@ export class InsightsService {
       anomalyReport,
       metricUpdatedAt,
       causalChainsResult.chains,
+      feedbackSummary,
     )
 
     const llmResult = await this._getLlmRecommendations(
@@ -315,6 +376,7 @@ export class InsightsService {
       mlPrediction,
       userProfile,
       causalChainsResult.chains,
+      feedbackSummary,
     )
 
     // ── Финальная сборка: consistency + ids + model_meta + structured-trace ──
@@ -394,6 +456,7 @@ export class InsightsService {
     mlPrediction: MlPrediction | null,
     userProfile: Awaited<ReturnType<UserProfileService['getProfileForMl']>>,
     causalChains: CausalChain[],
+    feedbackSummary: UserFeedbackSummary,
   ): Promise<RecommendationsResult> {
     const llmCacheKey = `llm:${userId}:${stateHash}`
     const cached = await this.cache.get<RecommendationsResult>(llmCacheKey)
@@ -418,6 +481,7 @@ export class InsightsService {
           sport_goal: userProfile.sportGoal,
         },
         _causal_chains: causalChains.map(toChainSummary) as CausalChainSummary[],
+        _user_feedback: feedbackSummary.totalCount > 0 ? feedbackSummary : undefined,
         _rules_context: {
           triggered_rules: rules.map(r => ({
             ruleId: r.ruleId,
@@ -465,6 +529,7 @@ export class InsightsService {
     anomalyReport: AnomalyReport,
     metricUpdatedAt: number,
     causalChains: CausalChain[],
+    feedbackSummary: UserFeedbackSummary,
   ): string {
     const snapshot = {
       // Версия данных пользователя — каждое POST/PATCH/DELETE метрики
@@ -479,6 +544,15 @@ export class InsightsService {
         .map(c => `${c.chainId}:${c.strength}`)
         .sort()
         .join('|'),
+      // Сводка по feedback: включаем total + топ-3 негативных rule_id.
+      // Так кэш инвалидируется при новых оценках пользователя, и
+      // следующая генерация уже учтёт его предпочтения.
+      feedback: {
+        total: feedbackSummary.totalCount,
+        notHelpful: feedbackSummary.topNotHelpfulRuleIds
+          .map(r => `${r.ruleId}:${r.count}`)
+          .join('|'),
+      },
       metrics: {
         avgSleepHours: +metrics.avgSleepHours.toFixed(2),
         avgCalories: Math.round(metrics.avgCalories),

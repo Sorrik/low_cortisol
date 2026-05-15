@@ -23,6 +23,24 @@ interface HealthData {
   }
   /** Обнаруженные причинно-следственные цепочки (см. CausalChainService). */
   _causal_chains?: CausalChainSummary[]
+  /**
+   * Сводка пользовательских оценок (helpful / not_helpful) за последние 30 дней.
+   * Используется LLM как сигнал: повторять успешные категории, избегать
+   * паттернов с массой негативных оценок. См. _getFeedbackSummary в InsightsService.
+   */
+  _user_feedback?: UserFeedbackSummary
+}
+
+export interface UserFeedbackSummary {
+  /** Сколько вообще оценок за окно. Если 0 — секция в промпт не попадает. */
+  totalCount: number
+  /** Группировка по metric-категории, извлечённой из rule_id. */
+  byCategoryHelpful:    Record<string, number>
+  byCategoryNotHelpful: Record<string, number>
+  /** Топ-3 rule_id с самым большим числом not_helpful — чтобы избегать паттерна. */
+  topNotHelpfulRuleIds: { ruleId: string; count: number }[]
+  /** Топ-3 rule_id с самым большим числом helpful — чтобы можно было повторить. */
+  topHelpfulRuleIds:    { ruleId: string; count: number }[]
 }
 
 export interface ShapInfluencer {
@@ -413,6 +431,49 @@ function buildCausalChainsSection(chains: CausalChainSummary[]): string {
   return lines.join('\n').trimEnd()
 }
 
+// ── Секция пользовательского feedback ─────────────────────────
+//
+// Помогает LLM подстроиться под предпочтения конкретного пользователя:
+// повторять категории / темы, которые он отмечал как полезные, и избегать
+// повторения тех ruleId, по которым он явно ставил not_helpful. Считаем
+// окно последних 30 дней, чтобы реагировать на свежие оценки, но не
+// застревать на старых.
+
+function buildFeedbackSection(fb: UserFeedbackSummary): string {
+  if (fb.totalCount === 0) return ''
+
+  const lines: string[] = []
+  lines.push(`ОБРАТНАЯ СВЯЗЬ ПОЛЬЗОВАТЕЛЯ ЗА 30 ДНЕЙ (всего ${fb.totalCount} оценок):`)
+
+  const helpfulCats = Object.entries(fb.byCategoryHelpful)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+  if (helpfulCats.length) {
+    lines.push(
+      `  Полезные категории: ${helpfulCats.map(([k, n]) => `${sanitizeForPrompt(k, 16)}(${n})`).join(', ')}`,
+    )
+  }
+
+  const notHelpfulCats = Object.entries(fb.byCategoryNotHelpful)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+  if (notHelpfulCats.length) {
+    lines.push(
+      `  Бесполезные категории: ${notHelpfulCats.map(([k, n]) => `${sanitizeForPrompt(k, 16)}(${n})`).join(', ')}`,
+    )
+  }
+
+  if (fb.topNotHelpfulRuleIds.length) {
+    lines.push(
+      `  Не повторяй шаблоны: ${fb.topNotHelpfulRuleIds
+        .map(r => `${sanitizeForPrompt(r.ruleId, 48)}(×${r.count})`)
+        .join(', ')}`,
+    )
+  }
+
+  return lines.join('\n')
+}
+
 // ── Главная функция ───────────────────────────────────────────
 
 export function buildRecommendationPrompt(
@@ -531,6 +592,14 @@ export function buildRecommendationPrompt(
     `    Цепочки 'weak' использовать только если других сигналов нет.`,
     `    Используй ТОЛЬКО даты и значения, перечисленные в данных — не округляй,`,
     `    не подставляй приближённые числа.`,
+    ``,
+    `12. ОБРАТНАЯ СВЯЗЬ ПОЛЬЗОВАТЕЛЯ.`,
+    `    Если есть раздел ОБРАТНАЯ СВЯЗЬ — используй его как фильтр:`,
+    `    - Категории с пометкой "Полезные" — повторяй формат и тематику;`,
+    `    - Категории с пометкой "Бесполезные" — допустимо, но дай новую формулировку;`,
+    `    - rule_id из списка "Не повторяй шаблоны" — НЕ выдавай рекомендации,`,
+    `      повторяющие шаблон. Если факт правдив и важен — переформулируй темой`,
+    `      или предложи другое действие. Не игнорируй критичные данные ради feedback.`,
   ].filter(s => s !== '').join('\n')
 
   // ── User prompt — только данные ───────────────────────────
@@ -585,6 +654,15 @@ export function buildRecommendationPrompt(
     if (chainsStr) {
       parts.push(``)
       parts.push(chainsStr)
+    }
+  }
+
+  // Обратная связь — после цепочек, до SHAP. См. правило 12 system prompt.
+  if (healthData._user_feedback && healthData._user_feedback.totalCount > 0) {
+    const fbStr = buildFeedbackSection(healthData._user_feedback)
+    if (fbStr) {
+      parts.push(``)
+      parts.push(fbStr)
     }
   }
 

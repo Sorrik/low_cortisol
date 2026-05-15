@@ -33,9 +33,43 @@ export class CacheInvalidationService {
    *  раньше, чем мы успеем построить с ним новый hash. */
   private readonly METRIC_UPDATED_TTL_SECONDS = 60 * 60 * 24 * 7 // 7 дней
 
+  /** Сколько накопленных записей метрик принудительно вызывает retrain. */
+  private readonly RETRAIN_RECORDS_THRESHOLD = 5
+  /** TTL счётчика — пока счётчик жив, ML-train не запускается повторно
+   *  при каждом POST. После 24ч счётчик сбросится сам, и порог можно
+   *  будет накопить заново. */
+  private readonly RETRAIN_COUNTER_TTL_SECONDS = 60 * 60 * 24
+
   async invalidate(userId: string): Promise<void> {
     await this.cache.del(`predict:${userId}`)
-    await this.cache.del(`train:${userId}`)
+
+    // ML-train намеренно НЕ инвалидируется при каждой записи метрики:
+    // обучение медленное (RandomForest на сервере), и одна новая запись
+    // редко существенно меняет персональную модель. Вместо этого считаем
+    // накопленный «долг» по записям, и форсируем retrain только когда
+    // он достигает RETRAIN_RECORDS_THRESHOLD (по умолчанию 5 — это
+    // примерно 1 полный день из шести метрик).
+    const counterKey = `retrain_pending:${userId}`
+    const pending = (await this.cache.get<number>(counterKey)) ?? 0
+    const next = pending + 1
+    if (next >= this.RETRAIN_RECORDS_THRESHOLD) {
+      // Достигли порога — удаляем train-кэш, чтобы следующий getInsights
+      // запустил обучение, и сбрасываем счётчик в 0.
+      await this.cache.del(`train:${userId}`)
+      await this.cache.del(counterKey)
+      this.logger.log(
+        `[cache] cleared -> ${userId} (predict + train at ${next} pending records, llm rotated)`,
+      )
+    } else {
+      await this.cache.set(
+        counterKey,
+        next,
+        this.RETRAIN_COUNTER_TTL_SECONDS * 1000,
+      )
+      this.logger.log(
+        `[cache] cleared -> ${userId} (predict, train kept; pending=${next}/${this.RETRAIN_RECORDS_THRESHOLD}, llm rotated)`,
+      )
+    }
 
     // LLM-кэш `llm:${userId}:${stateHash}` нельзя удалить wildcard'ом
     // (cache-manager этого не умеет на in-memory store), поэтому вместо
@@ -47,8 +81,6 @@ export class CacheInvalidationService {
       Date.now(),
       this.METRIC_UPDATED_TTL_SECONDS * 1000,
     )
-
-    this.logger.log(`[cache] cleared -> ${userId} (predict+train, llm rotated)`)
   }
 
   /** Вспомогательный геттер для InsightsService, чтобы вкладывать
