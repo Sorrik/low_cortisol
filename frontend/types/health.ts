@@ -68,6 +68,7 @@ export interface WaterRecord {
 
 export type TriggerSource = 'rule' | 'ml_shap' | 'llm' | 'consistency' | 'fallback'
 export type Confidence    = 'low' | 'medium' | 'high'
+export type ChainStrength = 'weak' | 'moderate' | 'strong'
 
 export interface TriggerSignal {
   source:             TriggerSource
@@ -80,6 +81,19 @@ export interface TriggerSignal {
   confidence?:        Confidence | null
 }
 
+/**
+ * Ссылка на причинно-следственную цепочку, на которой LLM построил
+ * рекомендацию. См. backend/CausalChainService и pattern map (A1–F2).
+ */
+export interface CausalChainRef {
+  chain_id: string
+  trigger:  string
+  mediator?: string | null
+  outcome:  string
+  lag:      string
+  strength: ChainStrength
+}
+
 export interface Recommendation {
   id?:             string
   metric:          MetricType
@@ -88,6 +102,7 @@ export interface Recommendation {
   description:     string
   rule_id?:        string | null
   trigger_signal?: TriggerSignal | null
+  causal_chain?:   CausalChainRef | null
 }
 
 export interface ModelMeta {
@@ -153,6 +168,32 @@ export interface DataCompleteness {
   water:     number
 }
 
+// ── Causal chains (полная структура, возвращается на верхнем уровне) ──
+export type CausalMetric =
+  | 'sleep' | 'mood' | 'stress' | 'activity' | 'nutrition' | 'water'
+
+export interface CausalChainStep {
+  metric:      CausalMetric
+  date:        string
+  value:       number
+  unit:        string
+  description: string
+}
+
+export interface CausalChain {
+  chainId:        string
+  category:       string
+  strength:       ChainStrength
+  trigger:        CausalChainStep
+  mediator?:      CausalChainStep
+  outcome:        CausalChainStep
+  lagDescription: string
+  mechanism:      string
+  recommendation: string
+  priority:       number
+  tags:           string[]
+}
+
 export interface InsightsResponse {
   user_id:           string
   phase:             PhaseInfo
@@ -166,6 +207,7 @@ export interface InsightsResponse {
   ruleRecommendations?: RuleRecommendation[]
   hasCriticalAlerts?: boolean
   anomalyReport?:     AnomalyReport
+  causalChains?:      CausalChain[]
   model_version:     string
   model_meta?:       ModelMeta | null
   disclaimer?:       string
