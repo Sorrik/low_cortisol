@@ -459,13 +459,16 @@ export class RecommendationRulesService {
     if (m.avgStressLevel < NORMS.HIGH_STRESS)     return null
     if (m.avgSleepHours >= NORMS.TARGET_SLEEP_LOW) return null
 
+    const sleepGap = Math.max(0, NORMS.TARGET_SLEEP_LOW - m.avgSleepHours)
+    const targetBed = sleepGap >= 1 ? '22:30' : '23:00'
+
     return {
       ruleId:        'combo.stress_sleep',
       category:      'stress',
       severity:      'critical',
-      title:         'Цикл стресс-недосып — нужно разорвать',
-      shortReason:   `Стресс ${m.avgStressLevel.toFixed(1)}/10 + сон ${m.avgSleepHours.toFixed(1)}ч — эти факторы взаимно усиливают друг друга.`,
-      suggestion:    'Приоритет: нормализуй сон. Даже +1 час сна снижает уровень кортизола на следующий день на 10–15%.',
+      title:         'Стресс и недосып — разорви цикл со сна',
+      shortReason:   `За 7 дней средний стресс ${m.avgStressLevel.toFixed(1)}/10 + сон ${m.avgSleepHours.toFixed(1)}ч/ночь — недосып повышает утренний кортизол, что усиливает дневной стресс.`,
+      suggestion:    `Сегодня отбой не позже ${targetBed}, без экранов за час до сна. +${sleepGap.toFixed(1)}ч сна обычно даёт измеримое снижение стресса уже на следующий день.`,
       priority:      93,
       metricValue:   m.avgStressLevel,
       threshold:     NORMS.HIGH_STRESS,
@@ -525,13 +528,21 @@ export class RecommendationRulesService {
 
     if (problems < 2) return null
 
+    // Указываем приоритетную метрику для разрыва цепочки:
+    // сон → стресс → настроение. Сон — самый верхний рычаг.
+    const startMetric = m.avgSleepHours < NORMS.TARGET_SLEEP_LOW
+      ? `сон ${m.avgSleepHours.toFixed(1)}ч → цель 7+ч`
+      : m.avgStressLevel > NORMS.HIGH_STRESS
+        ? `стресс ${m.avgStressLevel.toFixed(1)}/10 → дыхательная практика 10 мин в 21:00`
+        : `настроение ${m.avgMoodScore.toFixed(1)}/10 → 15 мин прогулки утром`
+
     return {
       ruleId:        'combo.mood_stress_sleep',
       category:      'mood',
       severity:      'critical',
-      title:         'Комплексное нарушение — системный подход',
-      shortReason:   `Одновременно: настроение ${m.avgMoodScore.toFixed(1)}/10, стресс ${m.avgStressLevel.toFixed(1)}/10, сон ${m.avgSleepHours.toFixed(1)}ч.`,
-      suggestion:    'Исправь одно — остальные улучшатся автоматически. Начни со сна: это самый быстрый рычаг.',
+      title:         'Связка mood-стресс-сон: разрывай с верхнего звена',
+      shortReason:   `За 7 дней одновременно ниже нормы: настроение ${m.avgMoodScore.toFixed(1)}/10, стресс ${m.avgStressLevel.toFixed(1)}/10, сон ${m.avgSleepHours.toFixed(1)}ч/ночь. Эти три метрики каскадно влияют друг на друга через кортизол.`,
+      suggestion:    `Начни с ${startMetric}. Это верхнее звено каскада — улучшение одной метрики тянет за собой остальные за 2–3 дня.`,
       priority:      96,
       metricValue:   problems,
       threshold:     1,
@@ -552,13 +563,15 @@ export class RecommendationRulesService {
     if (m.avgCalories   >= minCal)            return null
     if (m.nutritionDays < NORMS.MIN_LOG_DAYS) return null
 
+    const kcalGap = Math.round(target - m.avgCalories)
+
     return {
       ruleId:        'combo.sleep_nutrition',
       category:      'nutrition',
       severity:      'critical',
-      title:         'Двойной дефицит: сон + питание',
-      shortReason:   `Сон ${m.avgSleepHours.toFixed(1)}ч + ${Math.round(m.avgCalories)} ккал/день — организм работает на пределе.`,
-      suggestion:    'Добавь калорийный завтрак до 10:00 — он компенсирует часть усталости от недосыпа.',
+      title:         'Сон + калории: двойной энергодефицит',
+      shortReason:   `Сон ${m.avgSleepHours.toFixed(1)}ч/ночь (<6ч) одновременно с ${Math.round(m.avgCalories)} ккал/день — это ~${kcalGap} ккал дефицита на фоне недосыпа. Организм без топлива не может восстановиться.`,
+      suggestion:    `Завтра до 10:00 — белковый завтрак ≥25г белка и 400+ ккал (яйца, творог, овсянка с орехами). Это закрывает 30–40% суточного гэпа в самом эффективном для усвоения окне.`,
       priority:      90,
       metricValue:   m.avgCalories,
       threshold:     minCal,
@@ -573,13 +586,15 @@ export class RecommendationRulesService {
     if (m.avgSleepHours   >= NORMS.TARGET_SLEEP_LOW)  return null
     if (m.avgStressLevel  <  NORMS.HIGH_STRESS)        return null
 
+    const reducedMins = Math.round(m.avgActivityMins * 0.7)
+
     return {
       ruleId:        'combo.recovery_deficit',
       category:      'activity',
       severity:      'warning',
-      title:         'Нагрузка без восстановления',
-      shortReason:   `Активность ${Math.round(m.avgActivityMins)} мин/день, но сон ${m.avgSleepHours.toFixed(1)}ч + стресс ${m.avgStressLevel.toFixed(1)}/10.`,
-      suggestion:    'Снизь интенсивность тренировок на 20–30% до нормализации сна. Перетренированность снижает настроение.',
+      title:         'Перетренированность: активность без восстановления',
+      shortReason:   `За 7 дней активность ${Math.round(m.avgActivityMins)} мин/день на фоне сна ${m.avgSleepHours.toFixed(1)}ч/ночь и стресса ${m.avgStressLevel.toFixed(1)}/10. Это классический паттерн «нагрузка без восстановления»: HPA-ось не успевает откатиться, кортизол хронически повышен.`,
+      suggestion:    `Снизь объём до ~${reducedMins} мин/день (−30%) на ближайшие 3 дня, замени vigorous на moderate. Это даёт сну догнаться на 30–60 мин и снижает воспринимаемый стресс.`,
       priority:      60,
       metricValue:   m.avgActivityMins,
       threshold:     NORMS.MIN_ACTIVITY_MINS,

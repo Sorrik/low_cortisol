@@ -40,6 +40,22 @@ export class LlmService {
   private readonly client: OpenAI
   private readonly model:  string
   private readonly requestTimeoutMs: number
+  /**
+   * TEMP debug-флаг для аудита качества рекомендаций. При LLM_PROMPT_DUMP=1
+   * в лог печатается полный system/user промпт, retrieved-статьи, сырой
+   * ответ OpenAI и рекомендации на каждой стадии постобработки.
+   * Использовать только на dev-окружении при ручной проверке.
+   */
+  private readonly dumpPrompt = process.env.LLM_PROMPT_DUMP === '1'
+
+  private _dump(label: string, payload: unknown): void {
+    if (!this.dumpPrompt) return
+    const body = typeof payload === 'string'
+      ? payload
+      : JSON.stringify(payload, null, 2)
+    // warn-уровень чтобы пройти любой LOG_LEVEL
+    this.logger.warn(`\n========== [DUMP] ${label} ==========\n${body}\n========== END ${label} ==========`)
+  }
 
   constructor(
     private readonly config:     ConfigService,
@@ -97,6 +113,16 @@ export class LlmService {
       )
     }
 
+    this._dump('HEALTH_DATA (input to prompt-builder)', healthData)
+    this._dump('RAG ARTICLES', articles.map(a => ({
+      pmid: a.pmid,
+      title: a.title,
+      year: a.year,
+      relevance: a.relevance,
+      metric: a.metric,
+      abstract_head: (a.abstract ?? '').slice(0, 300),
+    })))
+
     // ── Источники для фронтенда
     const sources: ArticleSource[] = articles.map((a, i) => ({
       index: i + 1,
@@ -118,6 +144,10 @@ export class LlmService {
       `[getRecommendations] prompt ready: system_chars=${system.length}, ` +
       `user_chars=${user.length}, articles=${articles.length}`,
     )
+
+    this._dump('SYSTEM PROMPT', system)
+    this._dump('USER PROMPT', user)
+    this._dump('ML PREDICTION (passed to prompt-builder)', mlPrediction ?? null)
 
     try {
       const response = await this.client.chat.completions.create({
@@ -162,7 +192,10 @@ export class LlmService {
         `completion=${response.usage?.completion_tokens}`
       )
 
+      this._dump('OPENAI RAW RESPONSE', raw)
+
       let recommendations = this._parseResponse(raw)
+      this._dump('AFTER _parseResponse', recommendations)
 
       // ── Safety post-processing (Wave 3) ─────────────────────────────────
       // Порядок важен:
@@ -173,8 +206,13 @@ export class LlmService {
       //   3) severity коррекция — уже на чистом тексте.
       const allowedPmids = new Set(articles.map(a => String(a.pmid)))
       recommendations = this._stripUnknownPmidRefs(recommendations, allowedPmids)
+      this._dump('AFTER _stripUnknownPmidRefs', recommendations)
+
       recommendations = this._filterDangerousAdvice(recommendations)
+      this._dump('AFTER _filterDangerousAdvice', recommendations)
+
       recommendations = this._correctSeverities(recommendations, healthData)
+      this._dump('AFTER _correctSeverities (final)', recommendations)
       return { recommendations, sources }
 
     } catch (err) {

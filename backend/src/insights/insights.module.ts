@@ -7,6 +7,7 @@ import { InsightsService }          from './insights.service'
 import { InsightsController }       from './insights.controller'
 import { CacheInvalidationService } from './cache-invalidation.service'
 import { CalorieThresholdsService } from './calorie-thresholds.service'
+import { CausalChainService }       from './causal-chain.service'
 import { RecommendationRulesService } from './recommendation-rules.service'
 import { AnomalyDetectionService } from './anomaly-detection.service'
 import { ConsistencyService }      from './consistency.service'
@@ -36,7 +37,7 @@ import { GamificationModule } from '../gamification/gamification.module'
     GamificationModule,
   ],
   controllers: [InsightsController],
-  providers:   [InsightsService, RecommendationRulesService, AnomalyDetectionService, ConsistencyService, CacheInvalidationService, CalorieThresholdsService],
+  providers:   [InsightsService, RecommendationRulesService, AnomalyDetectionService, ConsistencyService, CacheInvalidationService, CalorieThresholdsService, CausalChainService],
   exports:    [CacheInvalidationService],
 })
 export class InsightsModule {}

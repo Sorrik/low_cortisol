@@ -7,6 +7,7 @@ export type PhaseMode         = 'cold_start' | 'learning' | 'personal'
 export type Direction         = 'positive' | 'negative'
 export type TriggerSourceType = 'rule' | 'ml_shap' | 'llm' | 'consistency' | 'fallback'
 export type ConfidenceType    = 'low' | 'medium' | 'high'
+export type ChainStrengthType = 'weak' | 'moderate' | 'strong'
 
 export class TriggerSignalDto {
   source!:           TriggerSourceType
@@ -57,6 +58,20 @@ export class DataCompletenessDto {
   water!:     number
 }
 
+/**
+ * Ссылка на причинно-следственную цепочку, на которой построена рекомендация.
+ * Заполняется LLM при использовании ПРИЧИННО-СЛЕДСТВЕННЫХ ЦЕПОЧЕК из
+ * промпта (см. CausalChainService). null — если рекомендация одиночная.
+ */
+export class CausalChainDto {
+  chain_id!:  string
+  trigger!:   string
+  mediator?:  string | null
+  outcome!:   string
+  lag!:       string
+  strength!:  ChainStrengthType
+}
+
 export class RecommendationDto {
   id?:             string
   metric!:         MetricType
@@ -65,6 +80,7 @@ export class RecommendationDto {
   description!:    string
   rule_id?:        string | null
   trigger_signal?: TriggerSignalDto | null
+  causal_chain?:   CausalChainDto | null
 }
 
 export class MlPredictResponseDto {

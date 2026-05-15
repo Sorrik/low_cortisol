@@ -24,6 +24,8 @@ import { RecommendationFeedback } from './recommendation-feedback.entity'
 import { AnomalyDetectionService, AnomalyReport } from './anomaly-detection.service'
 import { CacheInvalidationService } from './cache-invalidation.service'
 import { CalorieThresholdsService } from './calorie-thresholds.service'
+import { CausalChainService } from './causal-chain.service'
+import { CausalChain, CausalChainSummary, toChainSummary } from './causal-chain.types'
 import { ConsistencyService, ConsistencySnapshot } from './consistency.service'
 import { MetricsAdapter } from './metrics-adapter'
 import { RecommendationRulesService, RuleResult } from './recommendation-rules.service'
@@ -36,6 +38,8 @@ export interface InsightsResponseDto extends MlPredictResponseDto {
   mlRecommendations?: RecommendationDto[]
   /** Расхождения между субъективными и объективными метриками (consistency.service). */
   consistencyFlags?: ConsistencySnapshot['flags']
+  /** Обнаруженные причинно-следственные цепочки между метриками (см. CausalChainService). */
+  causalChains?: CausalChain[]
   /** Юридический disclaimer — клиент должен показать рядом с рекомендациями. */
   disclaimer?: string
 }
@@ -71,6 +75,7 @@ export class InsightsService {
     private readonly consistencyService: ConsistencyService,
     private readonly cacheInvalidationService: CacheInvalidationService,
     private readonly calorieThresholdsService: CalorieThresholdsService,
+    private readonly causalChainService: CausalChainService,
     @InjectRepository(SleepData)
     private readonly sleepRepo: Repository<SleepData>,
     @InjectRepository(MoodData)
@@ -142,13 +147,40 @@ export class InsightsService {
     const consistencyDays = this._buildConsistencyDays(healthData)
     const consistency     = this.consistencyService.evaluate(consistencyDays)
 
+    // ── Причинно-следственные цепочки между метриками ──
+    // Сервис ищет в данных пользователя 16 паттернов (A1..F2) вида
+    // «вчера X → сегодня Y» и передаёт их в LLM-prompt как факты, на
+    // основе которых строится текст совета. Это разрывает старый паттерн
+    // «среднее значение по метрике Y». См. CausalChainService.
+    const causalChainsResult = this.causalChainService.detect(
+      healthData,
+      {
+        sleepGoalHours: userProfile.sleepGoalHours,
+        baselineStress: userProfile.baselineStress,
+      },
+      { consistencyFlags: consistency.flags, topN: 5 },
+    )
+    if (causalChainsResult.chains.length > 0) {
+      this.logger.log(
+        `[causal] chains=${causalChainsResult.chains.length}: ` +
+        causalChainsResult.chains
+          .map(c => `${c.chainId}/${c.strength}`).join(', '),
+      )
+    }
+
     // Индивидуальные пороги калорий (Mifflin-St Jeor по данным профиля).
-    // Если в профиле нет gender/age/activity — сервис вернёт популяционный
-    // fallback, что лучше захардкоженных 1500/2000/3000 для всех.
+    // Точные age/weightKg/heightCm имеют приоритет; при их отсутствии
+    // используется ageRange и популяционные средние по полу как fallback.
+    // nutritionGoal (lose_weight | maintain | muscle_gain) сдвигает
+    // targetCalories относительно TDEE.
     const calorieThresholds = this.calorieThresholdsService.compute({
       gender:        userProfile.gender,
+      age:           userProfile.age,
+      weightKg:      userProfile.weightKg,
+      heightCm:      userProfile.heightCm,
       ageRange:      userProfile.ageRange,
       activityLevel: userProfile.activityLevel,
+      nutritionGoal: userProfile.nutritionGoal,
     })
     this.logger.log(
       `[calories] BMR=${calorieThresholds.bmr}, TDEE=${calorieThresholds.tdee}, ` +
@@ -270,6 +302,7 @@ export class InsightsService {
       mlPrediction,
       anomalyReport,
       metricUpdatedAt,
+      causalChainsResult.chains,
     )
 
     const llmResult = await this._getLlmRecommendations(
@@ -281,6 +314,7 @@ export class InsightsService {
       pythonRecommendations.length > 0 ? pythonRecommendations : ruleFallback,
       mlPrediction,
       userProfile,
+      causalChainsResult.chains,
     )
 
     // ── Финальная сборка: consistency + ids + model_meta + structured-trace ──
@@ -319,6 +353,7 @@ export class InsightsService {
       hasCriticalAlerts,
       anomalyReport,
       consistencyFlags: consistency.flags,
+      causalChains: causalChainsResult.chains,
       model_meta: modelMeta,
       disclaimer: HEALTH_DISCLAIMER,
     }
@@ -358,6 +393,7 @@ export class InsightsService {
     pythonFallback: RecommendationDto[],
     mlPrediction: MlPrediction | null,
     userProfile: Awaited<ReturnType<UserProfileService['getProfileForMl']>>,
+    causalChains: CausalChain[],
   ): Promise<RecommendationsResult> {
     const llmCacheKey = `llm:${userId}:${stateHash}`
     const cached = await this.cache.get<RecommendationsResult>(llmCacheKey)
@@ -381,6 +417,7 @@ export class InsightsService {
           weekly_training_min: userProfile.weeklyTrainingMinutes,
           sport_goal: userProfile.sportGoal,
         },
+        _causal_chains: causalChains.map(toChainSummary) as CausalChainSummary[],
         _rules_context: {
           triggered_rules: rules.map(r => ({
             ruleId: r.ruleId,
@@ -427,12 +464,21 @@ export class InsightsService {
     mlPrediction: MlPrediction | null,
     anomalyReport: AnomalyReport,
     metricUpdatedAt: number,
+    causalChains: CausalChain[],
   ): string {
     const snapshot = {
       // Версия данных пользователя — каждое POST/PATCH/DELETE метрики
       // обновляет timestamp в CacheInvalidationService, что меняет hash и
       // отделяет старый llm-кэш от свежего без wildcard-удаления ключей.
       metricUpdatedAt,
+      // Идентификаторы обнаруженных причинно-следственных цепочек —
+      // если набор меняется между запросами (например, появилась новая
+      // запись метрики, на которой сработал A1), кэш-хеш меняется и LLM
+      // получает обновлённый промпт с новыми фактами.
+      chainIds: causalChains
+        .map(c => `${c.chainId}:${c.strength}`)
+        .sort()
+        .join('|'),
       metrics: {
         avgSleepHours: +metrics.avgSleepHours.toFixed(2),
         avgCalories: Math.round(metrics.avgCalories),
