@@ -4,7 +4,7 @@ import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   User, RefreshCw, Pencil, X, Check,
-  Target, Moon, Activity, Brain, Zap,
+  Target, Moon, Activity, Brain, Zap, Flame,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button }   from "@/components/ui/button"
@@ -19,6 +19,7 @@ import type { UserProfile } from "@/types/onboarding"
 import {
   GOAL_CONFIG, CHRONOTYPE_CONFIG,
   ACTIVITY_CONFIG, SPORT_CONFIG, SPORT_GOAL_CONFIG,
+  NUTRITION_GOAL_CONFIG, GENDER_LABELS,
 } from "@/types/onboarding"
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -240,6 +241,87 @@ export default function ProfilePage() {
             </p>
           </CardHeader>
           <CardContent className="flex flex-col gap-6">
+
+            {/* Тело и калории */}
+            {(userProfile.age != null || userProfile.weightKg != null || userProfile.heightCm != null || userProfile.calorieTargets) && (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <Flame className="h-4 w-4 text-amber-400" />
+                  Тело и калории
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {userProfile.age != null && (
+                    <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm">
+                      <span className="text-muted-foreground">Возраст: </span>
+                      <span className="font-medium text-foreground">{userProfile.age} лет</span>
+                    </div>
+                  )}
+                  {userProfile.weightKg != null && (
+                    <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm">
+                      <span className="text-muted-foreground">Вес: </span>
+                      <span className="font-medium text-foreground">{userProfile.weightKg} кг</span>
+                    </div>
+                  )}
+                  {userProfile.heightCm != null && (
+                    <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm">
+                      <span className="text-muted-foreground">Рост: </span>
+                      <span className="font-medium text-foreground">{userProfile.heightCm} см</span>
+                    </div>
+                  )}
+                  {userProfile.gender && (
+                    <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm">
+                      <span className="text-muted-foreground">Пол: </span>
+                      <span className="font-medium text-foreground">{GENDER_LABELS[userProfile.gender]}</span>
+                    </div>
+                  )}
+                </div>
+
+                {userProfile.nutritionGoal && (
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="secondary" className="gap-1.5">
+                      {NUTRITION_GOAL_CONFIG[userProfile.nutritionGoal].icon}{" "}
+                      {NUTRITION_GOAL_CONFIG[userProfile.nutritionGoal].label}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground self-center">
+                      {NUTRITION_GOAL_CONFIG[userProfile.nutritionGoal].desc}
+                    </span>
+                  </div>
+                )}
+
+                {userProfile.calorieTargets && (
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+                    <div className="flex items-baseline gap-2 mb-2">
+                      <span className="text-3xl font-bold text-amber-400">
+                        {userProfile.calorieTargets.targetCalories}
+                      </span>
+                      <span className="text-sm text-muted-foreground">ккал/день — ваша цель</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <div>
+                        <span>BMR (покой): </span>
+                        <span className="text-foreground font-medium">{userProfile.calorieTargets.bmr}</span>
+                      </div>
+                      <div>
+                        <span>TDEE (расход): </span>
+                        <span className="text-foreground font-medium">{userProfile.calorieTargets.tdee}</span>
+                      </div>
+                      <div>
+                        <span>Мин.: </span>
+                        <span className="text-foreground font-medium">{userProfile.calorieTargets.minCalories}</span>
+                      </div>
+                      <div>
+                        <span>Макс.: </span>
+                        <span className="text-foreground font-medium">{userProfile.calorieTargets.maxCalories}</span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-2">
+                      Рассчитано по формуле Mifflin-St Jeor с учётом активности и цели по питанию.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Цели */}
             {(userProfile.goals?.length > 0) && (

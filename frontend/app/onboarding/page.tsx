@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils"
 import { completeOnboarding } from "@/lib/onboarding-api"
 import type {
   OnboardingData, GoalType, SleepChronotype,
-  ActivityLevel, SportType, AgeRange, Gender,
+  ActivityLevel, SportType, Gender, NutritionGoal,
 } from "@/types/onboarding"
 
 // ── Константы ─────────────────────────────────────────────────
@@ -28,11 +28,11 @@ import type {
 const TOTAL_STEPS = 5
 
 const STEPS = [
-  { id: 1, title: "О вас",      icon: User,     description: "Базовая информация"  },
-  { id: 2, title: "Цели",       icon: Target,   description: "Ваши приоритеты"     },
-  { id: 3, title: "Сон",        icon: Moon,     description: "Режим отдыха"        },
-  { id: 4, title: "Активность", icon: Activity, description: "Физическая нагрузка" },
-  { id: 5, title: "Стресс",     icon: Brain,    description: "Текущий уровень"     },
+  { id: 1, title: "О вас",      icon: User,     description: "Базовые параметры тела"  },
+  { id: 2, title: "Цели",       icon: Target,   description: "Приоритеты и питание"    },
+  { id: 3, title: "Сон",        icon: Moon,     description: "Режим отдыха"            },
+  { id: 4, title: "Активность", icon: Activity, description: "Физическая нагрузка"     },
+  { id: 5, title: "Стресс",     icon: Brain,    description: "Текущий уровень"         },
 ]
 
 const GOALS: { id: GoalType; label: string; description: string }[] = [
@@ -41,6 +41,12 @@ const GOALS: { id: GoalType; label: string; description: string }[] = [
   { id: "stress", label: "Снизить стресс",        description: "Спокойствие и баланс"        },
   { id: "weight", label: "Контроль веса",         description: "Здоровая масса тела"         },
   { id: "mood",   label: "Настроение",            description: "Эмоциональное здоровье"      },
+]
+
+const NUTRITION_GOALS: { id: NutritionGoal; label: string; description: string; icon: string }[] = [
+  { id: "lose_weight", label: "Снижение веса",        description: "Дефицит ~15% от суточной нормы", icon: "📉" },
+  { id: "maintain",    label: "Поддержание формы",    description: "Норма калорий = расход",         icon: "⚖️" },
+  { id: "muscle_gain", label: "Набор мышечной массы", description: "Профицит ~10% для роста мышц",  icon: "💪" },
 ]
 
 const CHRONOTYPES: { id: SleepChronotype; label: string; description: string }[] = [
@@ -75,22 +81,22 @@ const SPORT_GOALS = [
   { id: "reduce_stress",     label: "Снять стресс"     },
 ]
 
-const AGE_RANGES: AgeRange[] = ["18-25", "26-35", "36-45", "46+"]
-const GENDERS: { id: Gender; label: string }[] = [
-  { id: "male",              label: "Мужской"      },
-  { id: "female",            label: "Женский"      },
-  { id: "other",             label: "Другой"       },
-  { id: "prefer_not_to_say", label: "Не указывать" },
+const GENDERS: { id: Gender; label: string; icon: string }[] = [
+  { id: "male",   label: "Мужской", icon: "♂" },
+  { id: "female", label: "Женский", icon: "♀" },
 ]
 
 // ── Локальное состояние формы ─────────────────────────────────
 
 interface FormState {
   name:                 string
-  ageRange:             AgeRange | ""
+  age:                  number | ""
+  weightKg:             number | ""
+  heightCm:             number | ""
   gender:               Gender   | ""
   selectedGoals:        GoalType[]
   primaryGoal:          GoalType | ""
+  nutritionGoal:        NutritionGoal | ""
   chronotype:           SleepChronotype | ""
   sleepGoalHours:       number
   activityLevel:        ActivityLevel | ""
@@ -103,10 +109,13 @@ interface FormState {
 
 const DEFAULTS: FormState = {
   name:                 "",
-  ageRange:             "",
+  age:                  "",
+  weightKg:             "",
+  heightCm:             "",
   gender:               "",
   selectedGoals:        [],
   primaryGoal:          "",
+  nutritionGoal:        "",
   chronotype:           "",
   sleepGoalHours:       8,
   activityLevel:        "",
@@ -115,6 +124,15 @@ const DEFAULTS: FormState = {
   avgWorkoutDurationMin:45,
   sportGoal:            "",
   baselineStress:       5,
+}
+
+// ── Валидация числовых полей шага 1 ────────────────────────────
+const AGE_MIN = 13,  AGE_MAX = 120
+const W_MIN   = 30,  W_MAX   = 300
+const H_MIN   = 100, H_MAX   = 250
+
+function isValidNumberIn(v: number | "", min: number, max: number): boolean {
+  return typeof v === "number" && Number.isFinite(v) && v >= min && v <= max
 }
 
 // ── Page ──────────────────────────────────────────────────────
@@ -128,6 +146,13 @@ export default function OnboardingPage() {
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm(prev => ({ ...prev, [key]: value }))
+  }
+
+  function setNum<K extends "age" | "weightKg" | "heightCm">(key: K, raw: string) {
+    if (raw === "") return set(key, "" as FormState[K])
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return
+    set(key, n as FormState[K])
   }
 
   function toggleGoal(id: GoalType) {
@@ -151,8 +176,13 @@ export default function OnboardingPage() {
 
   function canProceed(): boolean {
     switch (step) {
-      case 1: return !!(form.name && form.ageRange && form.gender)
-      case 2: return form.selectedGoals.length > 0 && !!form.primaryGoal
+      case 1:
+        return !!form.name
+          && isValidNumberIn(form.age,      AGE_MIN, AGE_MAX)
+          && isValidNumberIn(form.weightKg, W_MIN,   W_MAX)
+          && isValidNumberIn(form.heightCm, H_MIN,   H_MAX)
+          && !!form.gender
+      case 2: return form.selectedGoals.length > 0 && !!form.primaryGoal && !!form.nutritionGoal
       case 3: return !!form.chronotype
       case 4: return !!form.activityLevel
       case 5: return true
@@ -168,10 +198,13 @@ export default function OnboardingPage() {
     // Маппим форму → OnboardingData (типы нашего API)
     const data: OnboardingData = {
       name:                  form.name,
-      ageRange:              form.ageRange  as AgeRange,
+      age:                   form.age      as number,
+      weightKg:              form.weightKg as number,
+      heightCm:              form.heightCm as number,
       gender:                form.gender   as Gender,
       goals:                 form.selectedGoals,
       primaryGoal:           form.primaryGoal as GoalType,
+      nutritionGoal:         form.nutritionGoal as NutritionGoal,
       chronotype:            form.chronotype as SleepChronotype,
       sleepGoalHours:        form.sleepGoalHours,
       activityLevel:         form.activityLevel as ActivityLevel,
@@ -280,25 +313,60 @@ export default function OnboardingPage() {
               />
             </div>
 
-            <div className="space-y-3">
-              <Label>Возраст</Label>
-              <div className="grid grid-cols-4 gap-2">
-                {AGE_RANGES.map(range => (
-                  <button
-                    key={range}
-                    onClick={() => set("ageRange", range)}
-                    className={cn(
-                      "py-3 rounded-xl border text-sm font-medium transition-all",
-                      form.ageRange === range
-                        ? "border-primary bg-primary/10 text-foreground"
-                        : "border-border bg-secondary/30 text-muted-foreground hover:border-primary/50"
-                    )}
-                  >
-                    {range}
-                  </button>
-                ))}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="age">Возраст</Label>
+                <Input
+                  id="age"
+                  type="number"
+                  inputMode="numeric"
+                  min={AGE_MIN}
+                  max={AGE_MAX}
+                  placeholder="25"
+                  value={form.age === "" ? "" : form.age}
+                  onChange={e => setNum("age", e.target.value)}
+                  className="h-12 bg-secondary/50"
+                />
+                <span className="text-xs text-muted-foreground">лет</span>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="weight">Вес</Label>
+                <Input
+                  id="weight"
+                  type="number"
+                  inputMode="decimal"
+                  step="0.1"
+                  min={W_MIN}
+                  max={W_MAX}
+                  placeholder="70"
+                  value={form.weightKg === "" ? "" : form.weightKg}
+                  onChange={e => setNum("weightKg", e.target.value)}
+                  className="h-12 bg-secondary/50"
+                />
+                <span className="text-xs text-muted-foreground">кг</span>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="height">Рост</Label>
+                <Input
+                  id="height"
+                  type="number"
+                  inputMode="numeric"
+                  min={H_MIN}
+                  max={H_MAX}
+                  placeholder="175"
+                  value={form.heightCm === "" ? "" : form.heightCm}
+                  onChange={e => setNum("heightCm", e.target.value)}
+                  className="h-12 bg-secondary/50"
+                />
+                <span className="text-xs text-muted-foreground">см</span>
               </div>
             </div>
+
+            <p className="text-xs text-muted-foreground -mt-2">
+              Эти данные нужны для точного расчёта суточной нормы калорий по формуле Mifflin-St Jeor.
+            </p>
 
             <div className="space-y-3">
               <Label>Пол</Label>
@@ -318,6 +386,7 @@ export default function OnboardingPage() {
                     )}
                   >
                     <RadioGroupItem value={g.id} />
+                    <span className="text-xl">{g.icon}</span>
                     <span className="font-medium text-sm">{g.label}</span>
                   </label>
                 ))}
@@ -326,7 +395,7 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        {/* ── Шаг 2: Цели ── */}
+        {/* ── Шаг 2: Цели + питание ── */}
         {step === 2 && (
           <div className="space-y-6">
             <div className="space-y-3">
@@ -390,6 +459,37 @@ export default function OnboardingPage() {
                 </RadioGroup>
               </div>
             )}
+
+            <div className="space-y-3 pt-2 border-t border-border/50">
+              <Label>Цель по питанию</Label>
+              <p className="text-xs text-muted-foreground -mt-2">
+                Определяет, сколько калорий рекомендуется в сутки.
+              </p>
+              <RadioGroup
+                value={form.nutritionGoal}
+                onValueChange={v => set("nutritionGoal", v as NutritionGoal)}
+                className="grid grid-cols-1 gap-2"
+              >
+                {NUTRITION_GOALS.map(ng => (
+                  <label
+                    key={ng.id}
+                    className={cn(
+                      "flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-all",
+                      form.nutritionGoal === ng.id
+                        ? "border-primary bg-primary/10"
+                        : "border-border bg-secondary/30 hover:border-primary/50"
+                    )}
+                  >
+                    <RadioGroupItem value={ng.id} />
+                    <span className="text-xl">{ng.icon}</span>
+                    <div className="flex-1">
+                      <span className="font-medium text-sm block">{ng.label}</span>
+                      <span className="text-xs text-muted-foreground">{ng.description}</span>
+                    </div>
+                  </label>
+                ))}
+              </RadioGroup>
+            </div>
           </div>
         )}
 

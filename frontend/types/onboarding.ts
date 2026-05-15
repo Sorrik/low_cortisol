@@ -5,17 +5,33 @@ export type SleepChronotype = 'early_bird' | 'night_owl' | 'no_routine'
 export type ActivityLevel   = 'sedentary' | 'light' | 'moderate' | 'active'
 export type SportType       = 'running' | 'gym' | 'yoga' | 'cycling' | 'swimming' | 'team_sports' | 'martial_arts' | 'home_workout' | 'none'
 export type SportGoal       = 'lose_weight' | 'build_muscle' | 'improve_endurance' | 'stay_healthy' | 'reduce_stress'
-export type AgeRange        = '18-25' | '26-35' | '36-45' | '46+'
-export type Gender          = 'male' | 'female' | 'other' | 'prefer_not_to_say'
+export type NutritionGoal   = 'lose_weight' | 'maintain' | 'muscle_gain'
+export type Gender          = 'male' | 'female'
+
+/** @deprecated оставлен для совместимости со старыми клиентами; новые анкеты используют точный age. */
+export type AgeRange = '18-25' | '26-35' | '36-45' | '46+'
+
+export interface CalorieTargets {
+  bmr:            number
+  tdee:           number
+  targetCalories: number
+  minCalories:    number
+  maxCalories:    number
+}
 
 export interface UserProfile {
   id:                    string
   userId:                string
   name:                  string | null
+  age:                   number | null
+  weightKg:              number | null
+  heightCm:              number | null
+  /** @deprecated сохраняется только для старых записей. */
   ageRange:              AgeRange | null
   gender:                Gender | null
   goals:                 GoalType[]
   primaryGoal:           GoalType | null
+  nutritionGoal:         NutritionGoal | null
   chronotype:            SleepChronotype | null
   sleepGoalHours:        number | null
   activityLevel:         ActivityLevel | null
@@ -25,18 +41,22 @@ export interface UserProfile {
   sportGoal:             SportGoal | null
   baselineStress:        number | null
   onboardingCompleted:   boolean
+  calorieTargets?:       CalorieTargets
 }
 
-// Данные которые собирает анкета (6 шагов)
+// Данные которые собирает анкета
 export interface OnboardingData {
-  // Шаг 1 — Кто ты
-  ageRange: AgeRange
+  // Шаг 1 — Тело
+  age:      number
+  weightKg: number
+  heightCm: number
   gender:   Gender
   name:     string
 
-  // Шаг 2 — Цели
-  goals:       GoalType[]
-  primaryGoal: GoalType
+  // Шаг 2 — Цели + питание
+  goals:         GoalType[]
+  primaryGoal:   GoalType
+  nutritionGoal: NutritionGoal
 
   // Шаг 3 — Режим сна
   chronotype:     SleepChronotype
@@ -96,27 +116,27 @@ export const SPORT_GOAL_CONFIG: Record<SportGoal, { label: string; icon: string 
   reduce_stress:      { label: 'Снять стресс спортом',   icon: '🧘' },
 }
 
-export const AGE_RANGE_LABELS: Record<AgeRange, string> = {
-  '18-25': '18–25 лет',
-  '26-35': '26–35 лет',
-  '36-45': '36–45 лет',
-  '46+':   '46+ лет',
+export const NUTRITION_GOAL_CONFIG: Record<NutritionGoal, { label: string; desc: string; icon: string }> = {
+  lose_weight: { label: 'Снижение веса',        desc: 'Дефицит ~15% от суточной нормы',  icon: '📉' },
+  maintain:    { label: 'Поддержание формы',    desc: 'Норма калорий = расход',          icon: '⚖️' },
+  muscle_gain: { label: 'Набор мышечной массы', desc: 'Профицит ~10% для роста мышц',     icon: '💪' },
 }
 
 export const GENDER_LABELS: Record<Gender, string> = {
-  male:              'Мужской',
-  female:            'Женский',
-  other:             'Другой',
-  prefer_not_to_say: 'Не указывать',
+  male:   'Мужской',
+  female: 'Женский',
 }
 
 // Дефолтные значения для формы
 export const ONBOARDING_DEFAULTS: OnboardingData = {
-  ageRange:             '18-25',
-  gender:               'prefer_not_to_say',
+  age:                  25,
+  weightKg:             70,
+  heightCm:             170,
+  gender:               'male',
   name:                 '',
   goals:                [],
   primaryGoal:          'mood',
+  nutritionGoal:        'maintain',
   chronotype:           'no_routine',
   sleepGoalHours:       8,
   activityLevel:        'light',
