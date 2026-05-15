@@ -182,6 +182,135 @@ describe('CausalChainService', () => {
     })
   })
 
+  describe('персональные пороги вместо хардкода', () => {
+    it('A3: на крупном юзере (TDEE 2800) порог дефицита выше, чем 1500*0.7', () => {
+      // Юзер с targetCalories=2800, minCalories=2380. Severe deficit
+      // = 2380*0.7 = 1666 ккал. Дефолтный порог был бы 1500*0.7=1050.
+      const history = neutralHistory()
+      const yesterday = date(-1)
+      const today = date(0)
+
+      // Вчера — 1500 ккал. Для дефолтного порога это НЕ дефицит (≥1050),
+      // а для персонального уже дефицит (<1666).
+      const yestNutrition = history.nutrition.find(n => n.date === yesterday)!
+      yestNutrition.calories = 1500
+      const todayMood = history.mood.find(m => m.date === today)!
+      todayMood.mood_score = 4  // ниже 7-1.5 = 5.5
+
+      const result = service.detect(
+        history,
+        {
+          sleepGoalHours: 8,
+          baselineStress: 5,
+          weightKg: 95,
+          calorieTargets: {
+            targetCalories: 2800,
+            minCalories:    2380,
+            maxCalories:    3360,
+          },
+        },
+      )
+
+      const a3 = result.chains.find(c => c.chainId === 'A3')
+      expect(a3).toBeDefined()
+      // В тексте должна быть персональная норма, не дефолтная
+      expect(a3!.trigger.description).toContain('2380')
+    })
+
+    it('A3: на маленьком юзере (TDEE 1700) НЕ срабатывает на 1500 ккал', () => {
+      // Юзер с targetCalories=1700, minCalories=1445. Severe deficit
+      // = 1445*0.7 = 1011 ккал. 1500 ккал — это норма для неё.
+      const history = neutralHistory()
+      const yesterday = date(-1)
+
+      const yestNutrition = history.nutrition.find(n => n.date === yesterday)!
+      yestNutrition.calories = 1500
+
+      const result = service.detect(
+        history,
+        {
+          sleepGoalHours: 8,
+          baselineStress: 5,
+          weightKg: 52,
+          calorieTargets: {
+            targetCalories: 1700,
+            minCalories:    1445,
+            maxCalories:    2040,
+          },
+        },
+      )
+
+      expect(result.chains.find(c => c.chainId === 'A3')).toBeUndefined()
+    })
+
+    it('A4: на крупном юзере порог белка >50г', () => {
+      // weightKg=95 → proteinMin = max(60, 95*1.0) = 95г.
+      // Юзер ест 70г белка/день — для дефолта (50) это норма, для нашего — дефицит.
+      const history = neutralHistory()
+      for (const n of history.nutrition) n.protein_grams = 70
+      for (const m of history.mood) m.mood_score = 4
+
+      const result = service.detect(
+        history,
+        {
+          weightKg: 95,
+          calorieTargets: { targetCalories: 2800, minCalories: 2380, maxCalories: 3360 },
+        },
+      )
+
+      const a4 = result.chains.find(c => c.chainId === 'A4')
+      expect(a4).toBeDefined()
+      expect(a4!.trigger.description).toContain('95')  // персональная норма
+    })
+
+    it('B3: на крупном юзере порог воды >1500 мл', () => {
+      // weightKg=95 → waterMin = max(1500, 95*30) = 2850 мл.
+      // Юзер выпил 2000 мл при 95-минутной тренировке — для дефолта это норма,
+      // для нас — дефицит.
+      const history = neutralHistory()
+      const today = date(0)
+      const todayActivity = history.activity.find(a => a.date === today)!
+      todayActivity.duration_minutes = 95
+      const todayWater = history.water.find(w => w.date === today)!
+      todayWater.amount_ml = 2000
+
+      const result = service.detect(
+        history,
+        {
+          weightKg: 95,
+          calorieTargets: { targetCalories: 2800, minCalories: 2380, maxCalories: 3360 },
+        },
+      )
+
+      const b3 = result.chains.find(c => c.chainId === 'B3')
+      expect(b3).toBeDefined()
+      expect(b3!.outcome.description).toContain('2850')
+    })
+
+    it('без профиля используются разумные дефолты (1500/60/1500)', () => {
+      // Smoke: при пустом профиле детекторы не падают, A1 продолжает работать.
+      const history = neutralHistory()
+      const yesterday = date(-1)
+      const today = date(0)
+
+      history.nutrition.push({
+        date: yesterday,
+        calories: 650,
+        protein_grams: 20,
+        carbs_grams: 30,
+        fat_grams: 30,
+        time: '22:30',
+      })
+      const todaySleep = history.sleep.find(s => s.date === today)!
+      todaySleep.duration_hours = 4.5
+      todaySleep.quality = 4
+
+      const result = service.detect(history, {})  // профиль пустой
+      const a1 = result.chains.find(c => c.chainId === 'A1')
+      expect(a1).toBeDefined()
+    })
+  })
+
   describe('базовые инварианты', () => {
     it('возвращает пустой массив на коротком окне', () => {
       const history: CausalChainHealthData = {

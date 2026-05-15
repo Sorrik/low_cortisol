@@ -75,12 +75,64 @@ export interface CausalChainHealthData {
 export interface CausalChainUserProfile {
   sleepGoalHours?: number | null
   baselineStress?: number | null
+  /** Точная масса тела — основа персональных порогов воды и белка. */
+  weightKg?: number | null
+  /**
+   * Персональные пороги калорий (Mifflin-St Jeor + nutritionGoal).
+   * Если переданы — детекторы A3/E2 используют их вместо хардкода 1500 ккал.
+   */
+  calorieTargets?: {
+    targetCalories: number
+    minCalories:    number
+    maxCalories:    number
+  } | null
 }
 
 export interface CausalChainDetectOptions {
   consistencyFlags?: ConsistencySnapshot['flags']
   /** Лимит итогового набора. По умолчанию 5. */
   topN?: number
+}
+
+/**
+ * Персональные пороги, выведенные из профиля. Если соответствующее поле
+ * не заполнено — используются разумные дефолты, чтобы детекторы продолжали
+ * работать на «холодных» аккаунтах.
+ */
+interface PersonalThresholds {
+  /**
+   * Минимально приемлемое суточное потребление калорий — ниже считаем
+   * дефицитом. Берётся из calorieTargets.minCalories (это 0.85×target),
+   * fallback 1500 ккал (нижняя клиническая граница для взрослого).
+   */
+  minCalories: number
+  /**
+   * Целевое суточное потребление — для расчёта серьёзного дефицита (×0.7).
+   */
+  targetCalories: number
+  /**
+   * Минимум белка в граммах за день. ~1.0 г/кг массы тела —
+   * нижняя граница для не-спортивных нагрузок (RDA 0.8, рекомендуем 1.0).
+   * Fallback 60 г при отсутствии веса.
+   */
+  proteinMin: number
+  /**
+   * Минимум воды в мл за день. 30 мл/кг — стандарт для умеренных климатов,
+   * fallback 1500 мл (нижняя граница без учёта тела).
+   */
+  waterMin: number
+}
+
+function buildPersonalThresholds(profile: CausalChainUserProfile): PersonalThresholds {
+  const weight = profile.weightKg && profile.weightKg > 0 ? profile.weightKg : null
+  const target = profile.calorieTargets?.targetCalories ?? 2000
+  const minCal = profile.calorieTargets?.minCalories   ?? 1500
+  return {
+    minCalories:    minCal,
+    targetCalories: target,
+    proteinMin:     weight ? Math.max(60, Math.round(weight * 1.0)) : 60,
+    waterMin:       weight ? Math.max(1500, Math.round(weight * 30)) : 1500,
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -129,6 +181,8 @@ interface ChainContext {
   byDate: Map<string, DailyAggregate>
   baselines: Baselines
   profile: CausalChainUserProfile
+  /** Персональные пороги, выведенные из профиля (см. buildPersonalThresholds). */
+  personal: PersonalThresholds
   consistencyFlags?: ConsistencySnapshot['flags']
 }
 
@@ -306,6 +360,7 @@ export class CausalChainService {
       byDate,
       baselines: this._buildBaselines(days),
       profile,
+      personal: buildPersonalThresholds(profile),
       consistencyFlags: opts.consistencyFlags,
     }
   }
@@ -564,21 +619,26 @@ export class CausalChainService {
   }
 
   /**
-   * A3: calories[t-1] < minCal*0.7 И mood[t] < normMood-1.5
+   * A3: calories[t-1] < personal.minCalories*0.7 И mood[t] < normMood-1.5
    * Дневная гипогликемия → раздражительность утром.
-   * minCal — берём 1500 как осторожный нижний порог (без Mifflin в контексте).
+   *
+   * Порог дефицита персональный: для маленькой женщины с TDEE 1700
+   * это будет ~1190 ккал, для крупного мужчины с TDEE 2800 — ~1700 ккал.
+   * Без этого общий порог 1500 ккал «работает» только на среднего юзера.
    */
   private _detectA3(ctx: ChainContext): CausalChain | null {
     const today = this._today(ctx)
     const yest = this._yesterday(ctx)
     if (!today || !yest) return null
-    if (yest.totalCalories === null || yest.totalCalories >= 1500 * 0.7) return null
+    const severeDeficit = ctx.personal.minCalories * 0.7
+    if (yest.totalCalories === null || yest.totalCalories >= severeDeficit) return null
     if (today.mood === null) return null
     const normMood = ctx.baselines.normMood
     if (!normMood || today.mood >= normMood - 1.5) return null
 
+    const deficit = Math.max(0, ctx.personal.minCalories - yest.totalCalories)
     const margin = Math.min(
-      (1500 * 0.7 - yest.totalCalories) / (1500 * 0.7),
+      (severeDeficit - yest.totalCalories) / severeDeficit,
       (normMood - 1.5 - today.mood) / Math.max(normMood, 1),
     )
     const coverage = this._coverage(ctx, 7, [d => d.totalCalories, d => d.mood])
@@ -593,7 +653,7 @@ export class CausalChainService {
         date:        yest.date,
         value:       yest.totalCalories,
         unit:        'ккал',
-        description: `${Math.round(yest.totalCalories)} ккал — дефицит ~${Math.round(1500 - yest.totalCalories)} ккал (${ruDate(yest.date)})`,
+        description: `${Math.round(yest.totalCalories)} ккал — дефицит ${Math.round(deficit)} ккал от вашей нормы ${ctx.personal.minCalories} (${ruDate(yest.date)})`,
       },
       outcome: {
         metric:      'mood',
@@ -611,8 +671,12 @@ export class CausalChainService {
   }
 
   /**
-   * A4: protein avg < 50g И mood_7d_mean < 5 (same-day window).
+   * A4: protein avg < personal.proteinMin И mood_7d_mean < 5 (same-day window).
    * Дефицит триптофана/тирозина → ↓серотонин/дофамин.
+   *
+   * Порог белка персональный: ~1.0 г/кг массы тела (для 70 кг — 70 г),
+   * fallback 60 г при отсутствии веса. RDA — 0.8 г/кг, но для активности
+   * и психического здоровья нижняя клиническая граница 1.0.
    */
   private _detectA4(ctx: ChainContext): CausalChain | null {
     const last7 = ctx.days.slice(-7)
@@ -629,9 +693,10 @@ export class CausalChainService {
     const avgProtein = proteinVals.reduce((s, v) => s + v, 0) / proteinVals.length
     const avgMood    = moodVals.reduce((s, v) => s + v, 0) / moodVals.length
 
-    if (avgProtein >= 50 || avgMood >= 5) return null
+    const proteinTarget = ctx.personal.proteinMin
+    if (avgProtein >= proteinTarget || avgMood >= 5) return null
 
-    const margin = Math.min((50 - avgProtein) / 50, (5 - avgMood) / 5)
+    const margin = Math.min((proteinTarget - avgProtein) / proteinTarget, (5 - avgMood) / 5)
     const coverage = this._coverage(ctx, 7, [d => d.totalProtein, d => d.mood])
     const strength = this._strengthFor(margin, coverage, false)
 
@@ -647,7 +712,7 @@ export class CausalChainService {
         date:        today.date,
         value:       Math.round(avgProtein),
         unit:        'г/день',
-        description: `белок ${Math.round(avgProtein)}г/день при норме ~80г (за 7 дней)`,
+        description: `белок ${Math.round(avgProtein)}г/день при вашей норме ${proteinTarget}г (за 7 дней)`,
       },
       outcome: {
         metric:      'mood',
@@ -658,7 +723,7 @@ export class CausalChainService {
       },
       lagDescription: 'за 7 дней',
       mechanism:      'дефицит триптофана/тирозина → ↓серотонин/дофамин',
-      recommendation: `Белок ${Math.round(avgProtein)}г/день, настроение ${roundTo(avgMood)}/10. Добавь 2 яйца (12г) + творог 100г (15г) на завтрак — это +27г белка в самое нужное время суток.`,
+      recommendation: `Белок ${Math.round(avgProtein)}г/день при норме ${proteinTarget}г, настроение ${roundTo(avgMood)}/10. Добавь 2 яйца (12г) + творог 100г (15г) на завтрак — это +27г белка в самое нужное время суток.`,
       priority:       strength === 'strong' ? 76 : 62,
       tags:           ['nutrition', 'mood', 'protein', 'chronic'],
     }
@@ -778,17 +843,19 @@ export class CausalChainService {
   }
 
   /**
-   * B3: activity_min[t]>90 И water_ml[t]<1500
+   * B3: activity_min[t]>90 И water_ml[t]<personal.waterMin
+   * Порог воды персональный: 30 мл/кг массы тела.
    */
   private _detectB3(ctx: ChainContext): CausalChain | null {
     const today = this._today(ctx)
     if (!today) return null
     if (today.activityMinutes === null || today.activityMinutes <= 90) return null
-    if (today.waterMl === null || today.waterMl >= 1500) return null
+    const waterMin = ctx.personal.waterMin
+    if (today.waterMl === null || today.waterMl >= waterMin) return null
 
     const margin = Math.min(
       (today.activityMinutes - 90) / 90,
-      (1500 - today.waterMl) / 1500,
+      (waterMin - today.waterMl) / waterMin,
     )
     const coverage = 1.0
     const strength = this._strengthFor(margin, coverage, false)
@@ -809,11 +876,11 @@ export class CausalChainService {
         date:        today.date,
         value:       today.waterMl,
         unit:        'мл',
-        description: `${today.waterMl} мл воды — на ${2000 - today.waterMl} мл ниже нормы`,
+        description: `${today.waterMl} мл воды — на ${waterMin - today.waterMl} мл ниже вашей нормы ${waterMin} мл`,
       },
       lagDescription: 'тот же день',
       mechanism:      'дегидратация после нагрузки',
-      recommendation: `Сегодня ${today.activityMinutes} мин тренировки при ${today.waterMl} мл воды. Стакан каждый час остаток дня + 500 мл сразу после следующей тренировки.`,
+      recommendation: `Сегодня ${today.activityMinutes} мин тренировки при ${today.waterMl} мл воды (норма ${waterMin}). Стакан каждый час остаток дня + 500 мл сразу после следующей тренировки.`,
       priority:       strength === 'strong' ? 76 : 60,
       tags:           ['activity', 'water', 'hydration'],
     }
@@ -1069,17 +1136,18 @@ export class CausalChainService {
   }
 
   /**
-   * D3: stress[t]>7 И water_ml[t]<1500
+   * D3: stress[t]>7 И water_ml[t]<personal.waterMin
    */
   private _detectD3(ctx: ChainContext): CausalChain | null {
     const today = this._today(ctx)
     if (!today) return null
     if (today.stress === null || today.stress <= 7) return null
-    if (today.waterMl === null || today.waterMl >= 1500) return null
+    const waterMin = ctx.personal.waterMin
+    if (today.waterMl === null || today.waterMl >= waterMin) return null
 
     const margin = Math.min(
       (today.stress - 7) / 7,
-      (1500 - today.waterMl) / 1500,
+      (waterMin - today.waterMl) / waterMin,
     )
     const coverage = 1.0
     const strength = this._strengthFor(margin, coverage, false)
@@ -1100,7 +1168,7 @@ export class CausalChainService {
         date:        today.date,
         value:       today.waterMl,
         unit:        'мл',
-        description: `${today.waterMl} мл воды — на ${1500 - today.waterMl} мл ниже минимума`,
+        description: `${today.waterMl} мл воды — на ${waterMin - today.waterMl} мл ниже вашей нормы ${waterMin} мл`,
       },
       lagDescription: 'тот же день',
       mechanism:      'кортизол + дегидратация → головные боли, спад концентрации',
@@ -1115,7 +1183,7 @@ export class CausalChainService {
   // ──────────────────────────────────────────────────────────────────
 
   /**
-   * E1: water_7d<1500 И activity_7d>30 И mood_7d<5.5
+   * E1: water_7d<personal.waterMin И activity_7d>30 И mood_7d<5.5
    */
   private _detectE1(ctx: ChainContext): CausalChain | null {
     const last7 = ctx.days.slice(-7)
@@ -1127,10 +1195,11 @@ export class CausalChainService {
     const avgWater = waterVals.reduce((s, v) => s + v, 0) / waterVals.length
     const avgAct = actVals.reduce((s, v) => s + v, 0) / actVals.length
     const avgMood = moodVals.reduce((s, v) => s + v, 0) / moodVals.length
-    if (avgWater >= 1500 || avgAct <= 30 || avgMood >= 5.5) return null
+    const waterMin = ctx.personal.waterMin
+    if (avgWater >= waterMin || avgAct <= 30 || avgMood >= 5.5) return null
 
     const margin = Math.min(
-      (1500 - avgWater) / 1500,
+      (waterMin - avgWater) / waterMin,
       (avgAct - 30) / 30,
       (5.5 - avgMood) / 5.5,
     )
@@ -1149,7 +1218,7 @@ export class CausalChainService {
         date:        today.date,
         value:       Math.round(avgWater),
         unit:        'мл/день',
-        description: `${Math.round(avgWater)} мл/день за 7 дней`,
+        description: `${Math.round(avgWater)} мл/день при вашей норме ${ctx.personal.waterMin} мл (за 7 дней)`,
       },
       mediator: {
         metric:      'activity',
@@ -1174,20 +1243,21 @@ export class CausalChainService {
   }
 
   /**
-   * E2: calories[t-1] < 1500*0.75 И activity_min[t-1] > 60 И mood[t] < normMood-1
+   * E2: calories[t-1] < personal.minCalories*0.75 И activity_min[t-1] > 60 И mood[t] < normMood-1
    */
   private _detectE2(ctx: ChainContext): CausalChain | null {
     const today = this._today(ctx)
     const yest = this._yesterday(ctx)
     if (!today || !yest) return null
-    if (yest.totalCalories === null || yest.totalCalories >= 1500 * 0.75) return null
+    const lowFuelThreshold = ctx.personal.minCalories * 0.75
+    if (yest.totalCalories === null || yest.totalCalories >= lowFuelThreshold) return null
     if (yest.activityMinutes === null || yest.activityMinutes <= 60) return null
     if (today.mood === null) return null
     const normMood = ctx.baselines.normMood
     if (!normMood || today.mood >= normMood - 1) return null
 
     const margin = Math.min(
-      (1500 * 0.75 - yest.totalCalories) / (1500 * 0.75),
+      (lowFuelThreshold - yest.totalCalories) / lowFuelThreshold,
       (yest.activityMinutes - 60) / 60,
       (normMood - 1 - today.mood) / Math.max(normMood, 1),
     )

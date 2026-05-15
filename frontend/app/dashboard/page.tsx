@@ -28,6 +28,7 @@ import {
   getActivityRecords,
   getWaterRecords,
 } from "@/lib/health-api"
+import { getProfile as getOnboardingProfile } from "@/lib/onboarding-api"
 import type { MetricType } from "@/types/health"
 
 function getStressColor(level: number | undefined): string {
@@ -101,8 +102,18 @@ export default function DashboardPage() {
   const { data: stress = [], isLoading: l4 } = useQuery({ queryKey: ["stress"], queryFn: getStressRecords })
   const { data: activity = [], isLoading: l5 } = useQuery({ queryKey: ["activity"], queryFn: getActivityRecords })
   const { data: water = [], isLoading: l6 } = useQuery({ queryKey: ["water"], queryFn: getWaterRecords })
+  // Профиль с calorieTargets — для персонализации цели «ккал из X».
+  // Не блокирует основной loading: пока не пришёл, используется
+  // популяционная цель 2000 ккал.
+  const { data: userProfile } = useQuery({
+    queryKey: ["user-profile"],
+    queryFn:  getOnboardingProfile,
+    staleTime: 1000 * 60 * 5,
+  })
 
   const loading = l1 || l2 || l3 || l4 || l5 || l6
+
+  const calorieTarget = userProfile?.calorieTargets?.targetCalories ?? 2000
 
   function handleDialogClose(open: boolean) {
     if (!open && addMetric) {
@@ -362,10 +373,10 @@ export default function DashboardPage() {
           <MetricCard
             title="Питание"
             value={dayNutrition ? `${dayNutrition.kcal}` : "—"}
-            subtitle={dayNutrition ? "ккал из 2000" : "Нет данных"}
+            subtitle={dayNutrition ? `ккал из ${calorieTarget}` : "Нет данных"}
             icon={UtensilsCrossed}
             href="/dashboard/nutrition"
-            progress={dayNutrition ? (dayNutrition.kcal / 2000) * 100 : 0}
+            progress={dayNutrition ? (dayNutrition.kcal / calorieTarget) * 100 : 0}
             sparklineData={nutritionSparkline.map((d) => d.value)}
             color="oklch(0.72 0.16 80)"
             onAdd={() => setAddMetric("food")}

@@ -54,6 +54,56 @@ const HEALTH_DISCLAIMER =
   'медицинским советом. При жалобах на здоровье, длительно сниженном настроении ' +
   'или хроническом стрессе обратитесь к специалисту (терапевт, психолог).'
 
+/**
+ * Чистая функция агрегации feedback-строк в UserFeedbackSummary.
+ * Вынесена из _getFeedbackSummary, чтобы было удобно тестировать без
+ * мока репозитория. Категория извлекается по схеме «{category}.{rule}».
+ */
+export function aggregateFeedbackSummary(
+  rows: Array<{ ruleId: string; rating: 'helpful' | 'not_helpful' }>,
+): UserFeedbackSummary {
+  const empty: UserFeedbackSummary = {
+    totalCount: 0,
+    byCategoryHelpful: {},
+    byCategoryNotHelpful: {},
+    topNotHelpfulRuleIds: [],
+    topHelpfulRuleIds: [],
+  }
+  if (rows.length === 0) return empty
+
+  const categoryOf = (ruleId: string): string => {
+    const dot = ruleId.indexOf('.')
+    return dot > 0 ? ruleId.slice(0, dot) : ruleId
+  }
+
+  const ruleHelpful    = new Map<string, number>()
+  const ruleNotHelpful = new Map<string, number>()
+  const catHelpful     = new Map<string, number>()
+  const catNotHelpful  = new Map<string, number>()
+
+  for (const r of rows) {
+    const cat = categoryOf(r.ruleId)
+    const map = r.rating === 'helpful' ? ruleHelpful : ruleNotHelpful
+    const cmap = r.rating === 'helpful' ? catHelpful : catNotHelpful
+    map.set(r.ruleId, (map.get(r.ruleId) ?? 0) + 1)
+    cmap.set(cat, (cmap.get(cat) ?? 0) + 1)
+  }
+
+  const topN = (m: Map<string, number>, n: number) =>
+    [...m.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, n)
+      .map(([ruleId, count]) => ({ ruleId, count }))
+
+  return {
+    totalCount: rows.length,
+    byCategoryHelpful:    Object.fromEntries(catHelpful),
+    byCategoryNotHelpful: Object.fromEntries(catNotHelpful),
+    topHelpfulRuleIds:    topN(ruleHelpful, 3),
+    topNotHelpfulRuleIds: topN(ruleNotHelpful, 3),
+  }
+}
+
 @Injectable()
 export class InsightsService {
   private readonly logger = new Logger(InsightsService.name)
@@ -131,47 +181,7 @@ export class InsightsService {
       where: { userId, createdAt: MoreThanOrEqual(since) },
       select: ['ruleId', 'rating'],
     })
-
-    const empty: UserFeedbackSummary = {
-      totalCount: 0,
-      byCategoryHelpful: {},
-      byCategoryNotHelpful: {},
-      topNotHelpfulRuleIds: [],
-      topHelpfulRuleIds: [],
-    }
-    if (rows.length === 0) return empty
-
-    const categoryOf = (ruleId: string): string => {
-      const dot = ruleId.indexOf('.')
-      return dot > 0 ? ruleId.slice(0, dot) : ruleId
-    }
-
-    const ruleHelpful    = new Map<string, number>()
-    const ruleNotHelpful = new Map<string, number>()
-    const catHelpful     = new Map<string, number>()
-    const catNotHelpful  = new Map<string, number>()
-
-    for (const r of rows) {
-      const cat = categoryOf(r.ruleId)
-      const map = r.rating === 'helpful' ? ruleHelpful : ruleNotHelpful
-      const cmap = r.rating === 'helpful' ? catHelpful : catNotHelpful
-      map.set(r.ruleId, (map.get(r.ruleId) ?? 0) + 1)
-      cmap.set(cat, (cmap.get(cat) ?? 0) + 1)
-    }
-
-    const topN = (m: Map<string, number>, n: number) =>
-      [...m.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, n)
-        .map(([ruleId, count]) => ({ ruleId, count }))
-
-    return {
-      totalCount: rows.length,
-      byCategoryHelpful:    Object.fromEntries(catHelpful),
-      byCategoryNotHelpful: Object.fromEntries(catNotHelpful),
-      topHelpfulRuleIds:    topN(ruleHelpful, 3),
-      topNotHelpfulRuleIds: topN(ruleNotHelpful, 3),
-    }
+    return aggregateFeedbackSummary(rows)
   }
 
   async getInsights(userId: string): Promise<InsightsResponseDto> {
@@ -205,32 +215,12 @@ export class InsightsService {
     const consistencyDays = this._buildConsistencyDays(healthData)
     const consistency     = this.consistencyService.evaluate(consistencyDays)
 
-    // ── Причинно-следственные цепочки между метриками ──
-    // Сервис ищет в данных пользователя 16 паттернов (A1..F2) вида
-    // «вчера X → сегодня Y» и передаёт их в LLM-prompt как факты, на
-    // основе которых строится текст совета. Это разрывает старый паттерн
-    // «среднее значение по метрике Y». См. CausalChainService.
-    const causalChainsResult = this.causalChainService.detect(
-      healthData,
-      {
-        sleepGoalHours: userProfile.sleepGoalHours,
-        baselineStress: userProfile.baselineStress,
-      },
-      { consistencyFlags: consistency.flags, topN: 5 },
-    )
-    if (causalChainsResult.chains.length > 0) {
-      this.logger.log(
-        `[causal] chains=${causalChainsResult.chains.length}: ` +
-        causalChainsResult.chains
-          .map(c => `${c.chainId}/${c.strength}`).join(', '),
-      )
-    }
-
     // Индивидуальные пороги калорий (Mifflin-St Jeor по данным профиля).
     // Точные age/weightKg/heightCm имеют приоритет; при их отсутствии
     // используется ageRange и популяционные средние по полу как fallback.
     // nutritionGoal (lose_weight | maintain | muscle_gain) сдвигает
-    // targetCalories относительно TDEE.
+    // targetCalories относительно TDEE. Считаем ДО causal chains, чтобы
+    // детекторы A3/E2 могли использовать персональный minCalories.
     const calorieThresholds = this.calorieThresholdsService.compute({
       gender:        userProfile.gender,
       age:           userProfile.age,
@@ -244,6 +234,36 @@ export class InsightsService {
       `[calories] BMR=${calorieThresholds.bmr}, TDEE=${calorieThresholds.tdee}, ` +
       `min=${calorieThresholds.minCalories}, max=${calorieThresholds.maxCalories}`,
     )
+
+    // ── Причинно-следственные цепочки между метриками ──
+    // Сервис ищет в данных пользователя 16 паттернов (A1..F2) вида
+    // «вчера X → сегодня Y» и передаёт их в LLM-prompt как факты, на
+    // основе которых строится текст совета. Это разрывает старый паттерн
+    // «среднее значение по метрике Y». См. CausalChainService.
+    //
+    // Пороги детекторов персональные: minCalories (A3/E2) — из Mifflin,
+    // proteinMin (A4) — 1.0 г/кг массы тела, waterMin (B3/D3/E1) — 30 мл/кг.
+    const causalChainsResult = this.causalChainService.detect(
+      healthData,
+      {
+        sleepGoalHours: userProfile.sleepGoalHours,
+        baselineStress: userProfile.baselineStress,
+        weightKg:       userProfile.weightKg,
+        calorieTargets: {
+          targetCalories: calorieThresholds.targetCalories,
+          minCalories:    calorieThresholds.minCalories,
+          maxCalories:    calorieThresholds.maxCalories,
+        },
+      },
+      { consistencyFlags: consistency.flags, topN: 5 },
+    )
+    if (causalChainsResult.chains.length > 0) {
+      this.logger.log(
+        `[causal] chains=${causalChainsResult.chains.length}: ` +
+        causalChainsResult.chains
+          .map(c => `${c.chainId}/${c.strength}`).join(', '),
+      )
+    }
 
     const rulesData = this._sliceHealthDataWindow(healthData, this.RULES_WINDOW_DAYS)
     const metrics = MetricsAdapter.fromInsightsData(

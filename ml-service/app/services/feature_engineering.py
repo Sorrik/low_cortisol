@@ -536,6 +536,12 @@ def build_features(data: HealthData, user_profile: Optional[Any] = None) -> Dict
         eve_min_t > 20 and np.isfinite(eve_int_t) and eve_int_t >= 2.5
     ) else 0.0
 
+    # _t1 версия флага — для cross_lag_evening_vigorous_x_today_sleep.
+    eve_int_t1 = _lag(eve_int, 1)
+    f["evening_vigorous_flag_t1"] = 1.0 if (
+        eve_min_t1 > 20 and np.isfinite(eve_int_t1) and eve_int_t1 >= 2.5
+    ) else 0.0
+
     # Средняя вечерняя нагрузка за 14 дней
     f["evening_exercise_mean_14d"] = _nanmean([v for v in eve_min if v > 0] or [0.0])
 
@@ -608,13 +614,21 @@ def build_features(data: HealthData, user_profile: Optional[Any] = None) -> Dict
     # ── Питание — ВРЕМЯ (новые фичи) ─────────────────────────
     late_cal_t  = _lag(late_meal_cals, 0)
     late_fat_t  = _lag(late_meal_fat,  0)
+    # _t1 версии нужны для cross-lag фичей «вчера поздний ужин →
+    # сегодня плохой сон» (см. блок cross_lag_* ниже).
+    late_cal_t1 = _lag(late_meal_cals, 1)
+    late_fat_t1 = _lag(late_meal_fat,  1)
 
-    f["late_meal_calories_t"] = late_cal_t
-    f["late_meal_flag"]       = 1.0 if late_cal_t > 200 else 0.0  # значимый поздний приём
+    f["late_meal_calories_t"]  = late_cal_t
+    f["late_meal_calories_t1"] = late_cal_t1
+    f["late_meal_flag"]        = 1.0 if late_cal_t  > 200 else 0.0  # значимый поздний приём
+    f["late_meal_flag_t1"]     = 1.0 if late_cal_t1 > 200 else 0.0
 
     # Соотношение жиров в позднем приёме — жирное на ночь = плохой сон
-    f["late_meal_fat_ratio"] = _safe_div(late_fat_t * 9, max(late_cal_t, 1.0)) \
-                               if late_cal_t > 100 else 0.0
+    f["late_meal_fat_ratio"]    = _safe_div(late_fat_t * 9, max(late_cal_t, 1.0)) \
+                                  if late_cal_t > 100 else 0.0
+    f["late_meal_fat_ratio_t1"] = _safe_div(late_fat_t1 * 9, max(late_cal_t1, 1.0)) \
+                                  if late_cal_t1 > 100 else 0.0
 
     # Среднее количество поздних приёмов за 14 дней
     f["late_meal_days_14d"] = float(sum(1 for v in late_meal_cals if v > 200))
@@ -743,6 +757,36 @@ def build_features(data: HealthData, user_profile: Optional[Any] = None) -> Dict
     f["combo_irregular_sleep_x_stress"] = (
         _clip01(f["bed_hour_std"] / 3.0) * (min(f["stress_t"], 10.0) / 10.0)
     )
+
+    # ── Cross-lag фичи (Level В из плана causal chains) ───────────────────
+    #
+    # Зеркалят правила CausalChainService на стороне ML: вчерашний триггер
+    # умножается на сегодняшний исход. Модель учится для каждого юзера
+    # индивидуально, насколько силён конкретный лаг — у одного
+    # cross_lag_late_fatty_meal_x_today_sleep становится топ-SHAP-фактором,
+    # у другого нет. Это персонализация цепочек через обучение, а не через
+    # ручные правила.
+
+    sleep_q_t_inv = (1.0 - min(f["sleep_quality_t"], 10.0) / 10.0) if f["sleep_quality_t"] > 0 else 0.0
+    mood_t_inv    = (1.0 - min(f["mood_t"],    10.0) / 10.0) if f["mood_t"]    > 0 else 0.0
+    stress_t_norm = min(f["stress_t"], 10.0) / 10.0 if f["stress_t"] > 0 else 0.0
+    sleep_dur_t1_short = max(0.0, 1.0 - f["sleep_duration_t1"] / 8.0) if f["sleep_duration_t1"] > 0 else 0.0
+    under_cal_t1  = 1.0 if (f["calories_t1"] > 0 and f["calories_t1"] < CALORIES_MIN) else 0.0
+
+    # A1 на стороне ML: late meal вчера × плохой сон сегодня
+    f["cross_lag_late_meal_x_today_sleep"] = f["late_meal_flag_t1"] * sleep_q_t_inv
+    # A1+ с учётом доли жира — резче, если ужин жирный
+    f["cross_lag_late_fatty_meal_x_today_sleep"] = (
+        f["late_meal_flag_t1"] * f["late_meal_fat_ratio_t1"] * sleep_q_t_inv
+    )
+    # B1: вечерняя интенсивная вчера × плохой сон сегодня
+    f["cross_lag_evening_vigorous_x_today_sleep"] = (
+        f["evening_vigorous_flag_t1"] * sleep_q_t_inv
+    )
+    # C1: короткий сон вчера × высокий стресс сегодня
+    f["cross_lag_sleep_debt_x_today_stress"] = sleep_dur_t1_short * stress_t_norm
+    # E2/A3: недоедание вчера × плохое настроение сегодня
+    f["cross_lag_undereat_x_today_mood"] = under_cal_t1 * mood_t_inv
 
     # ── Личные baseline'ы 30d + z-scores субъективных метрик ─────────────────
     # Зачем: абсолютный порог «stress >= 7» одинаков для всех, но у одного
