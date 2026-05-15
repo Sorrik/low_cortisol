@@ -16,6 +16,7 @@ import {
   OnboardingStep5Dto,
   UserProfileResponseDto,
 } from './dto/onboarding.dto'
+import { computeCalorieThresholds } from '../insights/calorie-thresholds.service'
 
 @Injectable()
 export class UserProfileService {
@@ -46,8 +47,12 @@ export class UserProfileService {
 
   async saveStep1(userId: string, dto: OnboardingStep1Dto) {
     const p = await this.getOrCreate(userId)
-    p.ageRange = dto.ageRange
-    p.gender = dto.gender
+    p.age      = dto.age
+    p.weightKg = dto.weightKg
+    p.heightCm = dto.heightCm
+    p.gender   = dto.gender
+    // ageRange сохраняем только если клиент его прислал (для backward compat).
+    if (dto.ageRange) p.ageRange = dto.ageRange
     if (dto.name) p.name = dto.name
     return this._persistAndInvalidate(p)
   }
@@ -56,6 +61,7 @@ export class UserProfileService {
     const p = await this.getOrCreate(userId)
     p.goals = dto.goals
     p.primaryGoal = dto.primaryGoal
+    p.nutritionGoal = dto.nutritionGoal
     return this._persistAndInvalidate(p)
   }
 
@@ -85,11 +91,15 @@ export class UserProfileService {
   async completeOnboarding(userId: string, dto: CompleteOnboardingDto) {
     const p = await this.getOrCreate(userId)
 
-    p.ageRange = dto.ageRange
-    p.gender = dto.gender
+    p.age      = dto.age
+    p.weightKg = dto.weightKg
+    p.heightCm = dto.heightCm
+    p.gender   = dto.gender
+    if (dto.ageRange) p.ageRange = dto.ageRange
     p.name = dto.name ?? p.name
     p.goals = dto.goals
     p.primaryGoal = dto.primaryGoal
+    p.nutritionGoal = dto.nutritionGoal
     p.chronotype = dto.chronotype
     p.sleepGoalHours = dto.sleepGoalHours
     p.activityLevel = dto.activityLevel
@@ -117,11 +127,15 @@ export class UserProfileService {
       sportGoal: p?.sportGoal ?? null,
       weeklyTrainingMinutes: (p?.workoutsPerWeek ?? 0) * (p?.avgWorkoutDurationMin ?? 0),
       // Поля для расчёта индивидуальных порогов калорий по Mifflin-St Jeor.
-      // Хранятся опционально (профиль может быть не заполнен), сервис
-      // CalorieThresholdsService обрабатывает null'ы через популяционные
-      // средние.
-      ageRange: p?.ageRange ?? null,
-      gender: p?.gender ?? null,
+      // Точные age/weightKg/heightCm имеют приоритет; при их отсутствии
+      // CalorieThresholdsService использует ageRange и популяционные
+      // средние по полу как fallback.
+      age:           p?.age      ?? null,
+      weightKg:      p?.weightKg ?? null,
+      heightCm:      p?.heightCm ?? null,
+      ageRange:      p?.ageRange ?? null,
+      gender:        p?.gender   ?? null,
+      nutritionGoal: p?.nutritionGoal ?? null,
     }
   }
 
@@ -135,14 +149,33 @@ export class UserProfileService {
   }
 
   private _toDto(p: UserProfile): UserProfileResponseDto {
+    // Рассчитываем индивидуальные пороги калорий, чтобы клиент мог сразу
+    // отобразить «ваша цель: X ккал/день» в профиле без отдельного запроса.
+    // Чистая функция computeCalorieThresholds импортируется напрямую из
+    // insights/calorie-thresholds, без NestJS-инъекции, чтобы избежать
+    // циклической зависимости с InsightsModule.
+    const calorieTargets = computeCalorieThresholds({
+      gender:        p.gender,
+      age:           p.age,
+      weightKg:      p.weightKg,
+      heightCm:      p.heightCm,
+      ageRange:      p.ageRange,
+      activityLevel: p.activityLevel,
+      nutritionGoal: p.nutritionGoal,
+    })
+
     return {
       id: p.id,
       userId: p.userId,
       name: p.name,
+      age: p.age,
+      weightKg: p.weightKg,
+      heightCm: p.heightCm,
       ageRange: p.ageRange,
       gender: p.gender,
       goals: p.goals ?? [],
       primaryGoal: p.primaryGoal,
+      nutritionGoal: p.nutritionGoal,
       chronotype: p.chronotype,
       sleepGoalHours: p.sleepGoalHours,
       activityLevel: p.activityLevel,
@@ -152,6 +185,7 @@ export class UserProfileService {
       sportGoal: p.sportGoal,
       baselineStress: p.baselineStress,
       onboardingCompleted: p.onboardingCompleted,
+      calorieTargets,
     }
   }
 }

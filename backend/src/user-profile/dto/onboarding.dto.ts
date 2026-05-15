@@ -6,21 +6,38 @@ import {
 } from 'class-validator'
 import {
   GoalType, SleepChronotype, ActivityLevel,
-  SportType, AgeRange, Gender,
+  SportType, AgeRange, Gender, NutritionGoal,
 } from '../user-profile.entity'
 
-const GOALS       = ['sleep', 'stress', 'energy', 'mood', 'weight']
-const SPORT_TYPES = ['running', 'gym', 'yoga', 'cycling', 'swimming', 'team_sports', 'martial_arts', 'home_workout', 'none']
-const SPORT_GOALS = ['lose_weight', 'build_muscle', 'improve_endurance', 'stay_healthy', 'reduce_stress']
-const CHRONOTYPES = ['early_bird', 'night_owl', 'no_routine']
-const ACT_LEVELS  = ['sedentary', 'light', 'moderate', 'active']
-const AGE_RANGES  = ['18-25', '26-35', '36-45', '46+']
-const GENDERS     = ['male', 'female', 'other', 'prefer_not_to_say']
+const GOALS            = ['sleep', 'stress', 'energy', 'mood', 'weight']
+const SPORT_TYPES      = ['running', 'gym', 'yoga', 'cycling', 'swimming', 'team_sports', 'martial_arts', 'home_workout', 'none']
+const SPORT_GOALS      = ['lose_weight', 'build_muscle', 'improve_endurance', 'stay_healthy', 'reduce_stress']
+const CHRONOTYPES      = ['early_bird', 'night_owl', 'no_routine']
+const ACT_LEVELS       = ['sedentary', 'light', 'moderate', 'active']
+const GENDERS          = ['male', 'female']
+const NUTRITION_GOALS  = ['lose_weight', 'maintain', 'muscle_gain']
 
-// ── Шаг 1 ─────────────────────────────────────────────────────
+// Старый AGE_RANGES оставлен для обратной совместимости старых клиентов,
+// которые пока шлют ageRange (если такие есть). При новой регистрации
+// предпочитается поле age.
+const AGE_RANGES       = ['18-25', '26-35', '36-45', '46+']
+
+// ── Шаг 1 — анкета о теле ─────────────────────────────────────
 export class OnboardingStep1Dto {
-  @IsEnum(AGE_RANGES)
-  ageRange!: AgeRange
+  @IsNumber()
+  @Min(13)
+  @Max(120)
+  age!: number
+
+  @IsNumber()
+  @Min(30)
+  @Max(300)
+  weightKg!: number
+
+  @IsNumber()
+  @Min(100)
+  @Max(250)
+  heightCm!: number
 
   @IsEnum(GENDERS)
   gender!: Gender
@@ -28,9 +45,17 @@ export class OnboardingStep1Dto {
   @IsString()
   @IsOptional()
   name?: string
+
+  /**
+   * @deprecated клиенты могут продолжать слать ageRange для совместимости,
+   * но при наличии age оно игнорируется.
+   */
+  @IsEnum(AGE_RANGES)
+  @IsOptional()
+  ageRange?: AgeRange
 }
 
-// ── Шаг 2 ─────────────────────────────────────────────────────
+// ── Шаг 2 — цели ──────────────────────────────────────────────
 export class OnboardingStep2Dto {
   @IsArray()
   @ArrayMinSize(1)
@@ -39,6 +64,10 @@ export class OnboardingStep2Dto {
 
   @IsEnum(GOALS)
   primaryGoal!: GoalType
+
+  /** Цель по питанию. Влияет на расчёт target_calories. */
+  @IsEnum(NUTRITION_GOALS)
+  nutritionGoal!: NutritionGoal
 }
 
 // ── Шаг 3 ─────────────────────────────────────────────────────
@@ -86,8 +115,20 @@ export class OnboardingStep5Dto {
 
 // ── Полный объект ──────────────────────────────────────────────
 export class CompleteOnboardingDto {
-  @IsEnum(AGE_RANGES)
-  ageRange!: AgeRange
+  @IsNumber()
+  @Min(13)
+  @Max(120)
+  age!: number
+
+  @IsNumber()
+  @Min(30)
+  @Max(300)
+  weightKg!: number
+
+  @IsNumber()
+  @Min(100)
+  @Max(250)
+  heightCm!: number
 
   @IsEnum(GENDERS)
   gender!: Gender
@@ -96,6 +137,11 @@ export class CompleteOnboardingDto {
   @IsOptional()
   name?: string
 
+  /** @deprecated см. OnboardingStep1Dto.ageRange */
+  @IsEnum(AGE_RANGES)
+  @IsOptional()
+  ageRange?: AgeRange
+
   @IsArray()
   @ArrayMinSize(1)
   @IsEnum(GOALS, { each: true })
@@ -103,6 +149,9 @@ export class CompleteOnboardingDto {
 
   @IsEnum(GOALS)
   primaryGoal!: GoalType
+
+  @IsEnum(NUTRITION_GOALS)
+  nutritionGoal!: NutritionGoal
 
   @IsEnum(CHRONOTYPES)
   chronotype!: SleepChronotype
@@ -144,10 +193,15 @@ export class UserProfileResponseDto {
   id!:                    string
   userId!:                string
   name!:                  string | null
+  age!:                   number | null
+  weightKg!:              number | null
+  heightCm!:              number | null
+  /** @deprecated клиенты должны опираться на age. */
   ageRange!:              AgeRange | null
   gender!:                Gender | null
   goals!:                 GoalType[]
   primaryGoal!:           GoalType | null
+  nutritionGoal!:         NutritionGoal | null
   chronotype!:            SleepChronotype | null
   sleepGoalHours!:        number | null
   activityLevel!:         ActivityLevel | null
@@ -157,4 +211,15 @@ export class UserProfileResponseDto {
   sportGoal!:             string | null
   baselineStress!:        number | null
   onboardingCompleted!:   boolean
+  /**
+   * Рассчитанные на лету индивидуальные пороги калорий (Mifflin-St Jeor
+   * с учётом nutritionGoal). Возвращаются для отображения в профиле.
+   */
+  calorieTargets?: {
+    bmr:            number
+    tdee:           number
+    targetCalories: number
+    minCalories:    number
+    maxCalories:    number
+  }
 }
