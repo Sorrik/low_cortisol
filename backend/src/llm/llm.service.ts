@@ -211,6 +211,9 @@ export class LlmService {
       recommendations = this._filterDangerousAdvice(recommendations)
       this._dump('AFTER _filterDangerousAdvice', recommendations)
 
+      recommendations = this._dedupeCausalChains(recommendations)
+      this._dump('AFTER _dedupeCausalChains', recommendations)
+
       recommendations = this._correctSeverities(recommendations, healthData)
       this._dump('AFTER _correctSeverities (final)', recommendations)
       return { recommendations, sources }
@@ -304,6 +307,44 @@ export class LlmService {
   // Корректирует severity в обе стороны:
   // - повышает когда LLM занижает критические значения
   // - понижает когда LLM завышает хорошие значения
+
+  /**
+   * Дедупликация causal_chain между рекомендациями. LLM иногда прикрепляет
+   * одну и ту же цепочку (например, A2 «питание → сон») сразу к двум
+   * рекомендациям — питанию и сну. По UX это выглядит как повтор: юзер
+   * видит одинаковый блок «Почему этот совет» в двух карточках.
+   *
+   * Правило: одна цепочка → одна рекомендация. Оставляем на той, у
+   * которой выше severity (alert > attention > good). При равной severity —
+   * на первой в порядке возврата. На остальных causal_chain = null.
+   */
+  private _dedupeCausalChains(recs: RecommendationDto[]): RecommendationDto[] {
+    const sevRank: Record<string, number> = { alert: 3, attention: 2, good: 1 }
+    const seen = new Map<string, number>()  // chain_id -> index of "winner"
+
+    recs.forEach((r, idx) => {
+      const chainId = r.causal_chain?.chain_id
+      if (!chainId) return
+      const current = seen.get(chainId)
+      if (current === undefined) {
+        seen.set(chainId, idx)
+        return
+      }
+      const curSev = sevRank[recs[current].severity] ?? 0
+      const newSev = sevRank[r.severity] ?? 0
+      if (newSev > curSev) seen.set(chainId, idx)
+    })
+
+    return recs.map((r, idx) => {
+      const chainId = r.causal_chain?.chain_id
+      if (!chainId) return r
+      const winner = seen.get(chainId)
+      if (winner !== idx) {
+        return { ...r, causal_chain: null }
+      }
+      return r
+    })
+  }
 
   private _correctSeverities(
     recs: RecommendationDto[],

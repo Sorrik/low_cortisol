@@ -338,10 +338,18 @@ function buildProfileSection(p: NonNullable<HealthData['_user_profile']>): strin
   if (sportGoal) {
     lines.push(`  Цель в спорте: ${sportGoal}`)
   }
-  lines.push('')
-  lines.push(`ВАЖНО: при оценке активности сравнивай avg_activity_mins с ТВОЕЙ`)
-  lines.push(`дневной нормой (Недельная нагрузка / 7), а не со стандартом 30-60 мин.`)
-  lines.push(`Если юзер на своей норме — НЕ рекомендуй увеличивать активность.`)
+  if (weeklyMin > 0) {
+    const dailyTarget = Math.round(weeklyMin / 7)
+    lines.push('')
+    lines.push(`⚠️  ЛИЧНАЯ НОРМА АКТИВНОСТИ: ${dailyTarget} мин/день.`)
+    lines.push(`Если avg_activity_mins ≥ ${dailyTarget} мин/день — юзер УЖЕ на цели.`)
+    lines.push(`В этом случае ЗАПРЕЩЕНО рекомендовать «увеличить активность».`)
+    lines.push(`Либо выдай позитивную ("good") рекомендацию про активность`)
+    lines.push(`("держи такой темп — N мин/день, на уровне твоей цели"),`)
+    lines.push(`либо НЕ упоминай активность вообще.`)
+    lines.push(`То же правило для других метрик: если значение в норме или`)
+    lines.push(`лучше — не предлагай «улучшить», только подтверди.`)
+  }
   return lines.join('\n')
 }
 

@@ -955,7 +955,7 @@ export class InsightsService {
     return {
       user_id: userId,
       sleep: sleep.map(r => ({
-        date: r.date,
+        date: this._toDateStr(r.date),
         duration_hours: (() => {
           if (r.durationHours != null) return Number(r.durationHours)
           if (r.bedTime && r.wakeTime) {
@@ -972,8 +972,8 @@ export class InsightsService {
         bed_time: r.bedTime ?? null,
         wake_time: r.wakeTime ?? null,
       })),
-      mood: mood.map(r => ({ date: r.date, mood_score: r.moodScore })),
-      stress: stress.map(r => ({ date: r.date, level: r.level })),
+      mood: mood.map(r => ({ date: this._toDateStr(r.date), mood_score: r.moodScore })),
+      stress: stress.map(r => ({ date: this._toDateStr(r.date), level: r.level })),
       activity: activityRaw.map(r => ({
         date: this._toDateStr(r.date),
         duration_minutes: Number(r.totalminutes),
@@ -986,7 +986,12 @@ export class InsightsService {
         amount_ml: Number(r.totalml),
       })),
       nutrition: nutritionRaw.map(r => ({
-        date: r.date,
+        // Нормализуем дату: TypeORM может вернуть Date-объект для
+        // @Column({ type: 'date' }). Без _toDateStr `.slice(0,10)` в
+        // MetricsAdapter падает или возвращает странное значение,
+        // и каждый приём пищи попадает в отдельный «день» — avg
+        // делится на количество приёмов вместо количества дней.
+        date: this._toDateStr(r.date),
         time: r.time ?? null,
         calories: r.calories,
         protein_grams: Number(r.proteinGrams),
