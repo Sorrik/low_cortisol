@@ -174,6 +174,29 @@ interface Baselines {
   bedHourStd7d: number | null
 }
 
+/**
+ * Абсолютные клинические пороги — нижний предел «плохо» / верхний
+ * предел «хорошо». Используются по схеме «дуал-ось»: цепочка
+ * срабатывает либо когда метрика хуже личной нормы, либо когда она
+ * абсолютно ниже клинической отсечки. Защищает от случая, когда у
+ * юзера baseline сам по себе плохой (хронический недосып) и
+ * относительное отклонение не возникает.
+ */
+const ABS = {
+  /** ≤5 — сон явно недостаточный (даже если у юзера средняя норма 5). */
+  SLEEP_QUALITY_BAD: 5,
+  /** Сон в часах ≤6 → нижняя клиническая граница «короткий сон». */
+  SLEEP_HOURS_SHORT: 6.0,
+  /** ≥7 — стресс высокий вне зависимости от baseline. */
+  STRESS_HIGH: 7,
+  /** ≤5 — настроение пониженное. */
+  MOOD_LOW: 5,
+  /** ≥7 — настроение явно хорошее. */
+  MOOD_HIGH: 7,
+  /** ≥7.5 — сон достаточный для восстановления. */
+  SLEEP_HOURS_GOOD: 7.5,
+}
+
 interface ChainContext {
   /** Все дни за окно, отсортированы по дате asc. */
   days: DailyAggregate[]
@@ -521,11 +544,18 @@ export class CausalChainService {
     if (fatRatio < 0.35) return null
     const normQ = ctx.baselines.normSleepQuality
     if (today.sleepQuality === null || !normQ) return null
-    if (today.sleepQuality >= normQ * 0.8) return null
+    // Дуал-ось: цепочка срабатывает либо когда качество сна хуже
+    // личной нормы (×0.8), либо когда оно абсолютно плохое (≤5).
+    // Иначе у юзера с хроническим средним 5 ничего не триггерится.
+    const qualityRefBad = today.sleepQuality < normQ * 0.8
+    const qualityAbsBad = today.sleepQuality <= ABS.SLEEP_QUALITY_BAD
+    if (!qualityRefBad && !qualityAbsBad) return null
 
+    const refMargin = qualityRefBad ? (normQ * 0.8 - today.sleepQuality) / (normQ * 0.8) : 0
+    const absMargin = qualityAbsBad ? (ABS.SLEEP_QUALITY_BAD - today.sleepQuality + 1) / 5 : 0
     const margin = Math.min(
       (yest.lateMealCalories - 300) / 300,
-      (normQ * 0.8 - today.sleepQuality) / (normQ * 0.8),
+      Math.max(refMargin, absMargin),
     )
     const coverage = this._coverage(ctx, 7, [d => d.sleepQuality, d => d.totalCalories])
     const strength = this._strengthFor(
@@ -634,12 +664,18 @@ export class CausalChainService {
     if (yest.totalCalories === null || yest.totalCalories >= severeDeficit) return null
     if (today.mood === null) return null
     const normMood = ctx.baselines.normMood
-    if (!normMood || today.mood >= normMood - 1.5) return null
+    if (!normMood) return null
+    // Дуал-ось: настроение ниже личной нормы на 1.5 ИЛИ абсолютно низкое (≤5).
+    const moodRefLow = today.mood < normMood - 1.5
+    const moodAbsLow = today.mood <= ABS.MOOD_LOW
+    if (!moodRefLow && !moodAbsLow) return null
 
     const deficit = Math.max(0, ctx.personal.minCalories - yest.totalCalories)
+    const moodRefMargin = moodRefLow ? (normMood - 1.5 - today.mood) / Math.max(normMood, 1) : 0
+    const moodAbsMargin = moodAbsLow ? (ABS.MOOD_LOW - today.mood + 1) / 5 : 0
     const margin = Math.min(
       (severeDeficit - yest.totalCalories) / severeDeficit,
-      (normMood - 1.5 - today.mood) / Math.max(normMood, 1),
+      Math.max(moodRefMargin, moodAbsMargin),
     )
     const coverage = this._coverage(ctx, 7, [d => d.totalCalories, d => d.mood])
     const strength = this._strengthFor(margin, coverage, false)
@@ -743,9 +779,14 @@ export class CausalChainService {
     if (!yest.eveningVigorousFlag) return null
     const normQ = ctx.baselines.normSleepQuality
     if (today.sleepQuality === null || !normQ) return null
-    if (today.sleepQuality >= normQ - 2) return null
+    // Дуал-ось: хуже личной нормы на 1.5 ИЛИ абсолютно плохо (≤5).
+    const qualityRefBad = today.sleepQuality < normQ - 1.5
+    const qualityAbsBad = today.sleepQuality <= ABS.SLEEP_QUALITY_BAD
+    if (!qualityRefBad && !qualityAbsBad) return null
 
-    const margin = (normQ - 2 - today.sleepQuality) / Math.max(normQ, 1)
+    const refMargin = qualityRefBad ? (normQ - 1.5 - today.sleepQuality) / Math.max(normQ, 1) : 0
+    const absMargin = qualityAbsBad ? (ABS.SLEEP_QUALITY_BAD - today.sleepQuality + 1) / 5 : 0
+    const margin = Math.max(refMargin, absMargin)
     const coverage = this._coverage(ctx, 7, [d => d.sleepQuality])
     const strength = this._strengthFor(
       margin,
@@ -900,11 +941,16 @@ export class CausalChainService {
     if (yest.sleepHours === null || yest.sleepHours >= 5.5) return null
     if (today.stress === null) return null
     const normStress = ctx.baselines.normStress ?? ctx.profile.baselineStress ?? 5
-    if (today.stress <= normStress + 2) return null
+    // Дуал-ось: стресс выше личной нормы на 1.5 ИЛИ абсолютно высокий (≥7).
+    const stressRefHi = today.stress > normStress + 1.5
+    const stressAbsHi = today.stress >= ABS.STRESS_HIGH
+    if (!stressRefHi && !stressAbsHi) return null
 
+    const refMargin = stressRefHi ? (today.stress - normStress - 1.5) / Math.max(normStress, 1) : 0
+    const absMargin = stressAbsHi ? (today.stress - ABS.STRESS_HIGH + 1) / 4 : 0
     const margin = Math.min(
       (5.5 - yest.sleepHours) / 5.5,
-      (today.stress - normStress - 2) / Math.max(normStress, 1),
+      Math.max(refMargin, absMargin),
     )
     const coverage = this._coverage(ctx, 7, [d => d.sleepHours, d => d.stress])
     const strength = this._strengthFor(
@@ -1004,10 +1050,15 @@ export class CausalChainService {
     const today = this._today(ctx)
     if (!today || today.mood === null) return null
     const normMood = ctx.baselines.normMood
-    if (!normMood || today.mood >= normMood - 1.5) return null
+    if (!normMood) return null
+    const moodRefLow = today.mood < normMood - 1.5
+    const moodAbsLow = today.mood <= ABS.MOOD_LOW
+    if (!moodRefLow && !moodAbsLow) return null
 
     const sequence = last3.map(d => `${roundTo(d.sleepHours!)}ч`).join('→')
-    const margin = (normMood - 1.5 - today.mood) / Math.max(normMood, 1)
+    const refMargin = moodRefLow ? (normMood - 1.5 - today.mood) / Math.max(normMood, 1) : 0
+    const absMargin = moodAbsLow ? (ABS.MOOD_LOW - today.mood + 1) / 5 : 0
+    const margin = Math.max(refMargin, absMargin)
     const coverage = this._coverage(ctx, 7, [d => d.sleepHours, d => d.mood])
     const strength = this._strengthFor(margin, coverage, false)
 
@@ -1254,12 +1305,17 @@ export class CausalChainService {
     if (yest.activityMinutes === null || yest.activityMinutes <= 60) return null
     if (today.mood === null) return null
     const normMood = ctx.baselines.normMood
-    if (!normMood || today.mood >= normMood - 1) return null
+    if (!normMood) return null
+    const moodRefLow = today.mood < normMood - 1
+    const moodAbsLow = today.mood <= ABS.MOOD_LOW
+    if (!moodRefLow && !moodAbsLow) return null
 
+    const moodRefMargin = moodRefLow ? (normMood - 1 - today.mood) / Math.max(normMood, 1) : 0
+    const moodAbsMargin = moodAbsLow ? (ABS.MOOD_LOW - today.mood + 1) / 5 : 0
     const margin = Math.min(
       (lowFuelThreshold - yest.totalCalories) / lowFuelThreshold,
       (yest.activityMinutes - 60) / 60,
-      (normMood - 1 - today.mood) / Math.max(normMood, 1),
+      Math.max(moodRefMargin, moodAbsMargin),
     )
     const coverage = this._coverage(ctx, 7, [d => d.totalCalories, d => d.activityMinutes, d => d.mood])
     const strength = this._strengthFor(margin, coverage, false)
@@ -1301,11 +1357,22 @@ export class CausalChainService {
     const today = this._today(ctx)
     const yest = this._yesterday(ctx)
     if (!today || !yest) return null
-    if (yest.sleepHours === null || yest.sleepHours < 7.5) return null
+    if (yest.sleepHours === null || yest.sleepHours < ABS.SLEEP_HOURS_GOOD) return null
     const normMood = ctx.baselines.normMood
-    if (!normMood || today.mood === null || today.mood < normMood + 1) return null
+    if (!normMood || today.mood === null) return null
+    // Дуал-ось для позитивной цепочки: настроение выше личной нормы
+    // ИЛИ просто абсолютно хорошее (≥7). Иначе у юзеров со стабильно
+    // высоким mood (например, Маша) F1 не сработает никогда.
+    const moodRefHigh = today.mood >= normMood + 1
+    const moodAbsHigh = today.mood >= ABS.MOOD_HIGH
+    if (!moodRefHigh && !moodAbsHigh) return null
 
-    const margin = Math.min((yest.sleepHours - 7.5) / 7.5, (today.mood - normMood - 1) / normMood)
+    const refMargin = moodRefHigh ? (today.mood - normMood - 1) / Math.max(normMood, 1) : 0
+    const absMargin = moodAbsHigh ? (today.mood - ABS.MOOD_HIGH + 1) / 4 : 0
+    const margin = Math.min(
+      (yest.sleepHours - ABS.SLEEP_HOURS_GOOD) / ABS.SLEEP_HOURS_GOOD,
+      Math.max(refMargin, absMargin),
+    )
     const coverage = this._coverage(ctx, 7, [d => d.sleepHours, d => d.mood])
     const strength = this._strengthFor(margin, coverage, false)
 

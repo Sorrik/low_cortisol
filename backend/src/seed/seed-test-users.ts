@@ -70,7 +70,11 @@ function rndF(min: number, max: number, dec = 1): number {
 }
 
 function hhmm(hour: number, minute = 0): string {
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+  // Защита от переноса через полночь: hhmm(24, 30) → 00:30, иначе
+  // получаем «24:35» и Postgres падает с date/time out of range.
+  const h = ((hour % 24) + 24) % 24
+  const m = ((minute % 60) + 60) % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
 /** True с заданной вероятностью (0..1). */
@@ -308,9 +312,12 @@ const andrey: PersonaDef = {
       }
     }
 
-    // Будни: типичный late-eater паттерн
+    // Будни: типичный late-eater паттерн. Жирный ужин в 22:30 + 5-6ч сна
+    // → качество стабильно низкое 3-5. Это реалистично: после большого
+    // объёма еды поздно вечером ЖКТ не успевает разгрузиться, плюс
+    // короткий сон сам по себе ухудшает фазу REM.
     return {
-      sleep: buildSleep(hhmm(1, rnd(0, 30)), hhmm(7, rnd(0, 30)), rnd(4, 6), rnd(1, 3)),
+      sleep: buildSleep(hhmm(1, rnd(0, 30)), hhmm(7, rnd(0, 30)), rnd(3, 5), rnd(2, 3)),
       mood: { moodScore: rnd(4, 6), time: hhmm(7, 45) },
       stress: [
         { level: rnd(6, 8), time: hhmm(11, 0) },
@@ -353,9 +360,10 @@ const olya: PersonaDef = {
     sportGoal: 'lose_weight',
   },
   generateDay: (_i, _dateStr) => {
-    // Сон обрывистый — 5.5-7ч, качество 5-7, 2-3 прерывания
+    // Сон обрывистый — 5.5-7ч, качество 5-7, 2-3 прерывания.
+    // Отбой между 22:30 и 23:45 — рано из-за ребёнка, но просыпается ночью.
     const sleep = buildSleep(
-      hhmm(rnd(23, 24), rnd(0, 45)),
+      hhmm(rnd(22, 23), rnd(15, 59)),
       hhmm(rnd(6, 7), rnd(0, 30)),
       rnd(5, 7),
       rnd(2, 3),
@@ -431,11 +439,13 @@ const kirill: PersonaDef = {
     }
 
     return {
-      // Тренировался → плохой сон, не тренировался → нормальный
+      // Тренировался → плохой сон (vigorous gym в 21:00 поднимает
+      // кортизол и температуру → ухудшается засыпание и качество).
+      // Не тренировался → нормальный.
       sleep: trains
-        ? buildSleep(hhmm(0, rnd(15, 45)), hhmm(7, rnd(0, 20)), rnd(5, 6), rnd(1, 2))
+        ? buildSleep(hhmm(0, rnd(15, 45)), hhmm(7, rnd(0, 20)), rnd(3, 5), rnd(1, 3))
         : buildSleep(hhmm(23, rnd(0, 30)), hhmm(7, rnd(0, 30)), rnd(6, 8), rnd(0, 1)),
-      mood: { moodScore: trains ? rnd(5, 7) : rnd(7, 8), time: hhmm(8, 0) },
+      mood: { moodScore: trains ? rnd(4, 6) : rnd(7, 8), time: hhmm(8, 0) },
       stress: [
         { level: rnd(6, 8), time: hhmm(12, 0) },
         { level: rnd(5, 7), time: hhmm(19, 0) },
@@ -478,20 +488,26 @@ const dima: PersonaDef = {
     sportTypes: ['home_workout'],
     sportGoal: 'stay_healthy',
   },
-  generateDay: (_i, _dateStr) => {
-    // Каждый день — рулетка времени отхода ко сну: 22:00 / 01:00 / 03:30
-    const roll = Math.random()
+  generateDay: (i, _dateStr) => {
+    // Каждый день — рулетка времени отхода ко сну. Но последние 3 дня
+    // (i ∈ {0,1,2}) детерминированно «дедлайн»: ложится в 3-4 утра,
+    // спит 4.5-5ч. Это нужно для срабатывания C3 (3 дня sleep<5.5 →
+    // mood drop), без него цепочка случайно может не сработать.
+    const isCrunchDay = i <= 2
+    const roll = isCrunchDay ? 0.95 : Math.random()
     let bed: string, wake: string, qual: number, hours: number
     if (roll < 0.3) {
       bed = hhmm(22, rnd(0, 45)); wake = hhmm(7, rnd(0, 30))
     } else if (roll < 0.6) {
       bed = hhmm(1,  rnd(0, 45)); wake = hhmm(8, rnd(30, 59))
     } else {
-      bed = hhmm(3,  rnd(0, 45)); wake = hhmm(rnd(10, 11), rnd(0, 30))
+      // Поздний отбой 3-4 утра, подъём 8-9 → сон 4.5-5ч
+      bed = hhmm(rnd(3, 4),  rnd(0, 45))
+      wake = hhmm(rnd(8, 9), rnd(0, 30))
     }
-    qual = rnd(4, 7)
+    qual = isCrunchDay ? rnd(3, 5) : rnd(4, 7)
     hours = sleepDuration(bed, wake)
-    if (hours > 11) hours = 11  // edge case
+    if (hours > 11) hours = 11
     const sleep = { bedTime: bed, wakeTime: wake, durationHours: parseFloat(hours.toFixed(1)), quality: qual, interruptions: rnd(0, 2) }
 
     // Питание хаотичное: часто пропускает завтрак, тяжёлый ужин или фастфуд
@@ -518,7 +534,7 @@ const dima: PersonaDef = {
 
     return {
       sleep,
-      mood: { moodScore: rnd(3, 6), time: hhmm(wake.startsWith('1') ? 11 : 9, 0) },
+      mood: { moodScore: isCrunchDay ? rnd(3, 5) : rnd(4, 6), time: hhmm(wake.startsWith('1') ? 11 : 9, 0) },
       stress: [{ level: rnd(4, 6), time: hhmm(16, 0) }],
       activity: chance(0.25)
         ? [{ type: 'home_workout', intensity: 'moderate', durationMinutes: rnd(15, 30), time: hhmm(18, 0), caloriesBurned: rnd(80, 140) }]
