@@ -508,21 +508,27 @@ export function buildRecommendationPrompt(
   const water     = lastNDays(healthData.water,     W)
   const nutrition = lastNDays(healthData.nutrition, W)
 
-  // Питание агрегируется ПО ДНЯМ перед summarize. nutrition массив —
-  // это отдельные приёмы пищи (3 в день у нормального юзера). Если
-  // взять avg напрямую через summarize(nutrition.map(r => r.calories)) —
-  // получим среднее НА ПРИЁМ ПИЩИ, а не на день. Это давало баг
-  // «462 ккал/день» у Маши и «22 г белка/день» у Димы.
+  // Питание агрегируется ПО ДНЯМ. Важная тонкость: переменная
+  // `nutrition` выше получена через lastNDays(healthData.nutrition, W),
+  // которая берёт последние W RECORDS (не дней). У сна/настроения это
+  // даёт 7 дней (1 запись/день), а у nutrition с 3-4 приёмами в день —
+  // только последние ~2 дня. Поэтому здесь идём напрямую от
+  // healthData.nutrition (там 35 дней window) и берём последние W дней
+  // по дате.
+  //
+  // Без этого LLM получал среднее НА ПРИЁМ ПИЩИ или среднее за 2 дня
+  // (а не за 7). Так у Маши получалось 462 ккал/день, у Димы — 22-52 г белка.
   const nutritionByDay = new Map<string, { calories: number; protein: number }>()
-  for (const r of nutrition) {
+  for (const r of healthData.nutrition) {
     const day = r.date.slice(0, 10)
     const prev = nutritionByDay.get(day) ?? { calories: 0, protein: 0 }
     prev.calories += r.calories || 0
     prev.protein  += r.protein_grams || 0
     nutritionByDay.set(day, prev)
   }
-  const dailyCalories = [...nutritionByDay.values()].map(d => d.calories).filter(c => c > 0)
-  const dailyProtein  = [...nutritionByDay.values()].map(d => d.protein).filter(p => p > 0)
+  const lastWDates = [...nutritionByDay.keys()].sort().slice(-W)
+  const dailyCalories = lastWDates.map(d => nutritionByDay.get(d)!.calories).filter(c => c > 0)
+  const dailyProtein  = lastWDates.map(d => nutritionByDay.get(d)!.protein).filter(p => p > 0)
 
   const stats = {
     sleep:    summarize(sleep.map(r => r.duration_hours),      true),
