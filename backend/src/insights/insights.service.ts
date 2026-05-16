@@ -292,6 +292,13 @@ export class InsightsService {
         goalCalories:  calorieThresholds.targetCalories,
         minCalories:   calorieThresholds.minCalories,
         maxCalories:   calorieThresholds.maxCalories,
+        // Личная дневная норма активности. Считается из weeklyTraining,
+        // используется в правилах активности чтобы не рекомендовать
+        // «увеличь активность» юзеру, который уже на цели.
+        personalDailyActivityTarget:
+          userProfile.weeklyTrainingMinutes && userProfile.weeklyTrainingMinutes > 0
+            ? userProfile.weeklyTrainingMinutes / 7
+            : undefined,
       },
     )
 

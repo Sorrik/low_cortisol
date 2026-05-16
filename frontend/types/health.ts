@@ -94,6 +94,35 @@ export interface CausalChainRef {
   strength: ChainStrength
 }
 
+/**
+ * Человеко-понятный ярлык темы цепочки для UI. ID цепочки (A1, B2…) —
+ * внутренние, пользователю показываем только тематический ярлык.
+ * Маппинг зеркалит backend CHAIN_TOPICS.
+ */
+export const CHAIN_TOPICS: Record<string, { label: string; emoji: string }> = {
+  A1: { label: 'Питание и сон',            emoji: '🍝→😴' },
+  A2: { label: 'Питание и сон',            emoji: '🍝→😴' },
+  A3: { label: 'Питание и настроение',     emoji: '🍽️→🙂' },
+  A4: { label: 'Питание и настроение',     emoji: '🥚→🙂' },
+  B1: { label: 'Тренировки и сон',         emoji: '🏋️→😴' },
+  B2: { label: 'Восстановление',           emoji: '🔋' },
+  B3: { label: 'Тренировки и вода',        emoji: '💧' },
+  C1: { label: 'Сон и стресс',             emoji: '😴→😰' },
+  C2: { label: 'Режим и настроение',       emoji: '🕐→🙂' },
+  C3: { label: 'Сон и настроение',         emoji: '😴→🙂' },
+  D1: { label: 'Стресс и еда',             emoji: '😰→🍕' },
+  D2: { label: 'Стресс и сон',             emoji: '😰→😴' },
+  D3: { label: 'Стресс и вода',            emoji: '😰→💧' },
+  E1: { label: 'Вода и энергия',           emoji: '💧→⚡' },
+  E2: { label: 'Тренировки и питание',     emoji: '🏃→🍽️' },
+  F1: { label: 'Хорошая привычка',         emoji: '✨' },
+  F2: { label: 'Стабильный паттерн',       emoji: '🎯' },
+}
+
+export function chainTopic(chainId: string): { label: string; emoji: string } {
+  return CHAIN_TOPICS[chainId] ?? { label: 'Связь между метриками', emoji: '🔗' }
+}
+
 export interface Recommendation {
   id?:             string
   metric:          MetricType

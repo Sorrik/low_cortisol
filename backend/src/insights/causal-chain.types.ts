@@ -28,6 +28,58 @@ export type ChainCategory =
   | 'fuel_recovery'     // E2
   | 'positive'          // F1, F2
 
+/**
+ * Допустимые метрики рекомендации для каждой цепочки. LLM не должен
+ * прикреплять, например, A2 (питание→сон) к рекомендации по стрессу.
+ * Маппинг используется как в system prompt, так и для пост-валидации.
+ */
+export const CHAIN_RELEVANT_METRICS: Record<
+  string,
+  ReadonlyArray<'sleep' | 'mood' | 'stress' | 'activity' | 'water' | 'food'>
+> = {
+  A1: ['sleep', 'food'],
+  A2: ['sleep', 'food'],
+  A3: ['mood', 'food'],
+  A4: ['mood', 'food'],
+  B1: ['sleep', 'activity'],
+  B2: ['sleep', 'activity', 'stress'],
+  B3: ['water', 'activity'],
+  C1: ['sleep', 'stress'],
+  C2: ['sleep', 'mood'],
+  C3: ['sleep', 'mood'],
+  D1: ['stress', 'food'],
+  D2: ['stress', 'sleep'],
+  D3: ['stress', 'water'],
+  E1: ['water', 'mood', 'activity'],
+  E2: ['food', 'activity', 'mood'],
+  F1: ['sleep', 'mood'],
+  F2: ['sleep', 'mood', 'stress', 'activity', 'water', 'food'],
+}
+
+/**
+ * Человеко-понятный ярлык темы для UI. ID цепочек (A1/B2/…) — внутренние,
+ * пользователю показывается только тема в виде «эмодзи + текст».
+ */
+export const CHAIN_TOPICS: Record<string, { label: string; emoji: string }> = {
+  A1: { label: 'Питание и сон',            emoji: '🍝→😴' },
+  A2: { label: 'Питание и сон',            emoji: '🍝→😴' },
+  A3: { label: 'Питание и настроение',     emoji: '🍽️→🙂' },
+  A4: { label: 'Питание и настроение',     emoji: '🥚→🙂' },
+  B1: { label: 'Тренировки и сон',         emoji: '🏋️→😴' },
+  B2: { label: 'Восстановление',           emoji: '🔋' },
+  B3: { label: 'Тренировки и вода',        emoji: '💧' },
+  C1: { label: 'Сон и стресс',             emoji: '😴→😰' },
+  C2: { label: 'Режим и настроение',       emoji: '🕐→🙂' },
+  C3: { label: 'Сон и настроение',         emoji: '😴→🙂' },
+  D1: { label: 'Стресс и еда',             emoji: '😰→🍕' },
+  D2: { label: 'Стресс и сон',             emoji: '😰→😴' },
+  D3: { label: 'Стресс и вода',            emoji: '😰→💧' },
+  E1: { label: 'Вода и энергия',           emoji: '💧→⚡' },
+  E2: { label: 'Тренировки и питание',     emoji: '🏃→🍽️' },
+  F1: { label: 'Хорошая привычка',         emoji: '✨' },
+  F2: { label: 'Стабильный паттерн',       emoji: '🎯' },
+}
+
 /** Одно звено цепочки — конкретное измерение конкретной метрики. */
 export interface CausalChainStep {
   metric: CausalMetric
@@ -105,6 +157,12 @@ export interface CausalChainSummary {
   outcome: CausalChainStep
   lagDescription: string
   mechanism: string
+  /**
+   * Список метрик, к рекомендациям по которым можно прикреплять эту
+   * цепочку. LLM использует список, чтобы не приклеить A2 (питание→сон)
+   * к рекомендации по стрессу или активности.
+   */
+  relevantMetrics: ReadonlyArray<'sleep' | 'mood' | 'stress' | 'activity' | 'water' | 'food'>
 }
 
 /**
@@ -113,13 +171,14 @@ export interface CausalChainSummary {
  */
 export function toChainSummary(chain: CausalChain): CausalChainSummary {
   const summary: CausalChainSummary = {
-    chainId:        chain.chainId,
-    category:       chain.category,
-    strength:       chain.strength,
-    trigger:        chain.trigger,
-    outcome:        chain.outcome,
-    lagDescription: chain.lagDescription,
-    mechanism:      chain.mechanism,
+    chainId:         chain.chainId,
+    category:        chain.category,
+    strength:        chain.strength,
+    trigger:         chain.trigger,
+    outcome:         chain.outcome,
+    lagDescription:  chain.lagDescription,
+    mechanism:       chain.mechanism,
+    relevantMetrics: CHAIN_RELEVANT_METRICS[chain.chainId] ?? [],
   }
   if (chain.mediator) summary.mediator = chain.mediator
   return summary

@@ -48,6 +48,14 @@ export interface UserMetrics {
   goalCalories?:   number       // целевое потребление = TDEE
   minCalories?:    number       // нижний порог дефицита
   maxCalories?:    number       // верхний порог профицита
+
+  /**
+   * Личная дневная норма активности (мин/день) = weeklyTrainingMinutes / 7.
+   * Если задана — правила про «мало активности» проверяют её,
+   * а не общий минимум 21/30 мин/день из NORMS. Защищает активных юзеров
+   * (5 трен/нед × 70 мин = 50 мин/день — это норма для них).
+   */
+  personalDailyActivityTarget?: number
 }
 
 /** Результат одного сработавшего правила */
@@ -357,6 +365,10 @@ export class RecommendationRulesService {
   // ═══════════════════════════════════════════════════════════════
 
   private checkSedentaryLifestyle(m: UserMetrics): RuleResult | null {
+    // Если юзер уже на личной норме — пропускаем правило (Кириллу с
+    // 5 трен/нед × 70 мин ≈ 50 мин/день не нужна рекомендация «увеличь активность»).
+    const personalTarget = m.personalDailyActivityTarget
+    if (personalTarget && m.avgActivityMins >= personalTarget * 0.85) return null
     if (m.avgActivityMins >= NORMS.MIN_ACTIVITY_MINS) return null
 
     return {
@@ -375,6 +387,8 @@ export class RecommendationRulesService {
   }
 
   private checkInsufficientActivity(m: UserMetrics): RuleResult | null {
+    const personalTarget = m.personalDailyActivityTarget
+    if (personalTarget && m.avgActivityMins >= personalTarget * 0.85) return null
     if (m.avgActivityMins < NORMS.MIN_ACTIVITY_MINS)        return null
     if (m.avgActivityMins >= NORMS.TARGET_ACTIVITY)          return null
 

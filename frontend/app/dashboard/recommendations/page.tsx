@@ -34,6 +34,7 @@ import { getAccessToken } from "@/lib/auth-store"
 import { getInsights, submitRecommendationFeedback } from "@/lib/health-api"
 import type { FeedbackRating } from "@/lib/health-api"
 import type { ArticleSource, InsightsResponse, Recommendation } from "@/types/health"
+import { chainTopic } from "@/types/health"
 
 type MetricType = "sleep" | "food" | "mood" | "stress" | "activity" | "water"
 type SeverityType = "alert" | "attention" | "good"
@@ -164,31 +165,40 @@ const confidenceConfig: Record<NonNullable<NonNullable<Recommendation["trigger_s
 }
 
 const strengthConfig: Record<NonNullable<Recommendation["causal_chain"]>["strength"], { label: string; color: string; dot: string }> = {
-  strong:   { label: "Сильная связь",   color: "text-emerald-400", dot: "bg-emerald-400" },
-  moderate: { label: "Умеренная связь", color: "text-amber-400",   dot: "bg-amber-400"   },
-  weak:     { label: "Слабая связь",    color: "text-foreground/40", dot: "bg-foreground/30" },
+  strong:   { label: "Устойчивая связь", color: "text-emerald-400", dot: "bg-emerald-400" },
+  moderate: { label: "Заметная связь",   color: "text-amber-400",   dot: "bg-amber-400"   },
+  weak:     { label: "Слабый сигнал",    color: "text-foreground/40", dot: "bg-foreground/30" },
 }
 
 function CausalChainBlock({ chain }: { chain: NonNullable<Recommendation["causal_chain"]> }) {
   const s = strengthConfig[chain.strength]
+  const topic = chainTopic(chain.chain_id)
+
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 text-[11px] font-medium">
-        <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
-        <span className={s.color}>{s.label}</span>
+      {/* Шапка: эмодзи + человеческая тема + сила связи. ID цепочки
+          (A1/B2/…) в UI больше не показываем — это внутренний код. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-medium">
+        <span className="text-sm leading-none" aria-hidden>{topic.emoji}</span>
+        <span className="text-foreground">{topic.label}</span>
         <span className="text-foreground/30">·</span>
-        <span className="text-foreground/40 font-mono">{chain.chain_id}</span>
+        <span className={`inline-flex items-center gap-1.5 ${s.color}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
+          {s.label}
+        </span>
         <span className="text-foreground/30">·</span>
         <span className="text-foreground/40">{chain.lag}</span>
       </div>
 
+      {/* Нарратив: что заметили → что увидели. Без терминов «триггер/
+          посредник/исход» — обычные подписи и тёплый язык. */}
       <div className="space-y-2">
         <div className="flex gap-2">
           <div className="mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-rose-500/20">
             <span className="h-1 w-1 rounded-full bg-rose-400" />
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-foreground/30 mb-0.5">Триггер</div>
+            <div className="text-[10px] uppercase tracking-wider text-foreground/30 mb-0.5">Что заметили</div>
             <p className="text-xs text-foreground/70">{chain.trigger}</p>
           </div>
         </div>
@@ -199,7 +209,7 @@ function CausalChainBlock({ chain }: { chain: NonNullable<Recommendation["causal
               <span className="h-1 w-1 rounded-full bg-amber-400" />
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-foreground/30 mb-0.5">Посредник</div>
+              <div className="text-[10px] uppercase tracking-wider text-foreground/30 mb-0.5">Что между</div>
               <p className="text-xs text-foreground/70">{chain.mediator}</p>
             </div>
           </div>
@@ -210,7 +220,7 @@ function CausalChainBlock({ chain }: { chain: NonNullable<Recommendation["causal
             <span className="h-1 w-1 rounded-full bg-cyan-400" />
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-foreground/30 mb-0.5">Исход</div>
+            <div className="text-[10px] uppercase tracking-wider text-foreground/30 mb-0.5">Что увидели</div>
             <p className="text-xs text-foreground/70">{chain.outcome}</p>
           </div>
         </div>
@@ -249,15 +259,19 @@ function WhyBlock({ rec }: { rec: Recommendation }) {
         <span className="inline-flex items-center gap-1.5">
           <Info className="h-3.5 w-3.5" />
           Почему этот совет
-          {chain && (
-            <span className={`ml-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-              chain.strength === "strong" ? "bg-emerald-500/10 text-emerald-400"
-              : chain.strength === "moderate" ? "bg-amber-500/10 text-amber-400"
-              : "bg-surface-strong text-foreground/40"
-            }`}>
-              цепочка {chain.chain_id}
-            </span>
-          )}
+          {chain && (() => {
+            const t = chainTopic(chain.chain_id)
+            return (
+              <span className={`ml-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                chain.strength === "strong" ? "bg-emerald-500/10 text-emerald-400"
+                : chain.strength === "moderate" ? "bg-amber-500/10 text-amber-400"
+                : "bg-surface-strong text-foreground/40"
+              }`}>
+                <span aria-hidden>{t.emoji}</span>
+                {t.label}
+              </span>
+            )
+          })()}
         </span>
         <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
