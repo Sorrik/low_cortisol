@@ -355,7 +355,22 @@ export class LlmService {
     const avgOf = (arr: any[], key: string) =>
       arr.length ? arr.reduce((s: number, r: any) => s + (r[key] ?? 0), 0) / arr.length : 0
 
-    const avgCalories = avgOf(healthData.nutrition ?? [], 'calories')
+    // Питание: nutrition массив = отдельные приёмы. avgOf даёт среднее
+    // НА ПРИЁМ, а проверки ниже — на ДЕНЬ (< 1200 ккал/день и т.п.).
+    // Поэтому аггрегируем по дням так же, как в prompt-builder.
+    const nutritionByDay = new Map<string, { calories: number; protein: number; days: number }>()
+    for (const r of (healthData.nutrition ?? []) as Array<{ date?: string; calories?: number; protein_grams?: number }>) {
+      const day = (r.date ?? 'unknown').slice(0, 10)
+      const prev = nutritionByDay.get(day) ?? { calories: 0, protein: 0, days: 1 }
+      prev.calories += r.calories ?? 0
+      prev.protein  += r.protein_grams ?? 0
+      nutritionByDay.set(day, prev)
+    }
+    const dailyCalArr  = [...nutritionByDay.values()].map(d => d.calories).filter(c => c > 0)
+    const dailyProtArr = [...nutritionByDay.values()].map(d => d.protein).filter(p => p > 0)
+    const avgCalories  = dailyCalArr.length  ? dailyCalArr.reduce((s, v)  => s + v, 0) / dailyCalArr.length  : 0
+    const avgProtein   = dailyProtArr.length ? dailyProtArr.reduce((s, v) => s + v, 0) / dailyProtArr.length : 0
+
     const avgSleep    = avgOf(healthData.sleep     ?? [], 'duration_hours')
     const avgStress   = avgOf(healthData.stress    ?? [], 'level')
     const avgMood     = avgOf(healthData.mood      ?? [], 'mood_score')
@@ -367,6 +382,7 @@ export class LlmService {
     const minSeverity: Record<string, 'good' | 'attention' | 'alert'> = {}
     if (avgCalories > 0) {
       if (avgCalories < 1200 || avgCalories > 3500) minSeverity['food'] = 'alert'
+      else if (avgProtein > 0 && avgProtein < 50)   minSeverity['food'] = 'alert'  // критический белковый дефицит
     }
     if (avgSleep > 0) {
       if (avgSleep < 5.5)      minSeverity['sleep'] = 'alert'
@@ -389,7 +405,16 @@ export class LlmService {
     if (avgStress > 0 && avgStress < 5)                    maxSeverity['stress']   = 'attention'
     if (avgSleep  > 0 && avgSleep  >= sleepGoal - 0.5)     maxSeverity['sleep']    = 'attention'
     if (avgMood   > 0 && avgMood   >= 6)                   maxSeverity['mood']     = 'attention'
-    if (avgCalories > 1200 && avgCalories < 3500)          maxSeverity['food']     = 'attention'
+    // Калории и белок одновременно в комфортном диапазоне → max severity = good.
+    // 70 г белка при норме 75 г — это «good», не «alert». 5 г разницы в пределах
+    // вариативности. Жёсткий потолок защищает от LLM-завышения.
+    if (avgCalories > 1500 && avgCalories < 3000
+        && (avgProtein === 0 || avgProtein >= 65)) {
+      maxSeverity['food'] = 'good'
+    } else if (avgCalories > 1200 && avgCalories < 3500
+               && (avgProtein === 0 || avgProtein >= 50)) {
+      maxSeverity['food'] = 'attention'
+    }
 
     return recs.map(rec => {
       let { severity } = rec

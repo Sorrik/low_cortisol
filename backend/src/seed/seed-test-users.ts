@@ -510,25 +510,27 @@ const dima: PersonaDef = {
     if (hours > 11) hours = 11
     const sleep = { bedTime: bed, wakeTime: wake, durationHours: parseFloat(hours.toFixed(1)), quality: qual, interruptions: rnd(0, 2) }
 
-    // Питание хаотичное: часто пропускает завтрак, тяжёлый ужин или фастфуд
+    // Питание хаотичное: студент-холостяк часто пропускает приёмы пищи
+    // и перебивается быстрой едой → реальный дефицит белка (~45-55г/день
+    // при норме 75г). Это нужно для срабатывания A4 как реального alert.
     const nutrition: DayData['nutrition'] = []
-    if (chance(0.5)) {
+    if (chance(0.3)) {
       nutrition.push({ time: hhmm(11, 0), mealType: 'breakfast', meal: pick(QUICK_BREAKFASTS) })
     }
-    // Обед
-    if (chance(0.7)) {
+    // Обед — чаще перехватывает йогурт/чипсы/бутер вместо нормальной еды
+    if (chance(0.4)) {
       nutrition.push({ time: hhmm(15, 0), mealType: 'lunch', meal: pick(LUNCHES_HEALTHY) })
     } else {
       nutrition.push({ time: hhmm(16, 0), mealType: 'snack', meal: pick(SKIP_OR_SNACK) })
     }
-    // Ужин — часто пельмени/пицца, иногда что-то нормальное
-    if (chance(0.6)) {
+    // Ужин — пицца/шаверма/бургер чаще; иногда нормальная еда
+    if (chance(0.7)) {
       nutrition.push({ time: hhmm(21, rnd(0, 45)), mealType: 'dinner', meal: pick(LATE_HEAVY_DINNERS) })
     } else {
       nutrition.push({ time: hhmm(20, 0), mealType: 'dinner', meal: pick(DINNERS_HEALTHY) })
     }
-    // Ночной перекус
-    if (chance(0.3)) {
+    // Ночной перекус — низкобелковый, не закрывает дефицит
+    if (chance(0.5)) {
       nutrition.push({ time: hhmm(rnd(0, 1), 30), mealType: 'snack', meal: pick(SKIP_OR_SNACK) })
     }
 
