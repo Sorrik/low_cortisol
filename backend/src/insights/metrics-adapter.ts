@@ -42,6 +42,7 @@ export class MetricsAdapter {
       maxCalories?:  number
       totalDataDays?: number
       personalDailyActivityTarget?: number
+      personalProteinTarget?: number
     },
   ): UserMetrics {
 
@@ -120,6 +121,7 @@ export class MetricsAdapter {
       minCalories:     opts?.minCalories,
       maxCalories:     opts?.maxCalories,
       personalDailyActivityTarget: opts?.personalDailyActivityTarget,
+      personalProteinTarget:       opts?.personalProteinTarget,
     }
   }
 

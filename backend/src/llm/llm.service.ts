@@ -375,14 +375,35 @@ export class LlmService {
     const avgStress   = avgOf(healthData.stress    ?? [], 'level')
     const avgMood     = avgOf(healthData.mood      ?? [], 'mood_score')
 
-    const sleepGoal = (healthData._user_profile?.sleep_goal_hours as number | undefined) ?? 8
-    const baseline  = (healthData._user_profile?.baseline_stress  as number | undefined) ?? 5
+    const profile = healthData._user_profile ?? {}
+    const sleepGoal = (profile.sleep_goal_hours as number | undefined) ?? 8
+    const baseline  = (profile.baseline_stress  as number | undefined) ?? 5
+    // Персональные нормы. Если в профиле не заданы — используем
+    // популяционные fallback'и, чтобы не блокировать недозаполненных юзеров.
+    const targetCalories = (profile.target_calories  as number | undefined) ?? 2000
+    const targetProtein  = (profile.target_protein_g as number | undefined) ?? 75
+    const targetWaterMl  = (profile.target_water_ml  as number | undefined) ?? 2000
+
+    // Процентное отклонение от персональной нормы. Защищает от
+    // несправедливости абсолютных порогов: «70г белка» — alert для маленькой
+    // женщины (норма 55) и good для крупного мужчины (норма 95).
+    const proteinDeficit = avgProtein > 0
+      ? (targetProtein - avgProtein) / targetProtein  // 0.25 = 25% дефицит
+      : 0
+    const calorieDeficit = avgCalories > 0
+      ? (targetCalories - avgCalories) / targetCalories
+      : 0
 
     // Минимальный порог (повышает severity): метрика в опасном диапазоне
     const minSeverity: Record<string, 'good' | 'attention' | 'alert'> = {}
     if (avgCalories > 0) {
-      if (avgCalories < 1200 || avgCalories > 3500) minSeverity['food'] = 'alert'
-      else if (avgProtein > 0 && avgProtein < 50)   minSeverity['food'] = 'alert'  // критический белковый дефицит
+      // alert: ≥25% недобор от персональной нормы калорий ИЛИ >75% профицит
+      if (calorieDeficit >= 0.25 || avgCalories > targetCalories * 1.75) {
+        minSeverity['food'] = 'alert'
+      } else if (avgProtein > 0 && proteinDeficit >= 0.25) {
+        // alert: ≥25% недобор белка
+        minSeverity['food'] = 'alert'
+      }
     }
     if (avgSleep > 0) {
       if (avgSleep < 5.5)      minSeverity['sleep'] = 'alert'
@@ -400,20 +421,40 @@ export class LlmService {
       else if (avgMood < 6)   minSeverity['mood'] = 'attention'
     }
 
-    // Максимальный порог (понижает severity): метрика в хорошем диапазоне — LLM не может завышать
+    // Максимальный порог (понижает severity). 5 г белка при норме 75 — это
+    // вариативность, а не повод для alert. Универсальное правило:
+    // отклонение < 10% от нормы — это «good», 10-25% — «attention».
     const maxSeverity: Record<string, 'good' | 'attention' | 'alert'> = {}
     if (avgStress > 0 && avgStress < 5)                    maxSeverity['stress']   = 'attention'
     if (avgSleep  > 0 && avgSleep  >= sleepGoal - 0.5)     maxSeverity['sleep']    = 'attention'
     if (avgMood   > 0 && avgMood   >= 6)                   maxSeverity['mood']     = 'attention'
-    // Калории и белок одновременно в комфортном диапазоне → max severity = good.
-    // 70 г белка при норме 75 г — это «good», не «alert». 5 г разницы в пределах
-    // вариативности. Жёсткий потолок защищает от LLM-завышения.
-    if (avgCalories > 1500 && avgCalories < 3000
-        && (avgProtein === 0 || avgProtein >= 65)) {
-      maxSeverity['food'] = 'good'
-    } else if (avgCalories > 1200 && avgCalories < 3500
-               && (avgProtein === 0 || avgProtein >= 50)) {
-      maxSeverity['food'] = 'attention'
+
+    // Food: одновременно учитываем калории и белок.
+    if (avgCalories > 0) {
+      const maxDeficit = Math.max(calorieDeficit, proteinDeficit)
+      if (maxDeficit < 0.10) {
+        maxSeverity['food'] = 'good'      // < 10% — норма
+      } else if (maxDeficit < 0.25) {
+        maxSeverity['food'] = 'attention' // 10-25% — заметно, но не alert
+      }
+      // ≥ 25% — alert, потолок не применяется
+    }
+
+    // Water: тот же принцип — процентное отклонение от персональной нормы.
+    // Берём avg по дням из healthData.water (там уже daily-aggregated по SQL).
+    const dailyWater = (healthData.water ?? [])
+      .map((r: { amount_ml?: number }) => r.amount_ml ?? 0)
+      .filter((v: number) => v > 0)
+    if (dailyWater.length > 0) {
+      const avgWater = dailyWater.reduce((s: number, v: number) => s + v, 0) / dailyWater.length
+      const waterDeficit = (targetWaterMl - avgWater) / targetWaterMl
+      if (waterDeficit >= 0.50) {
+        minSeverity['water'] = 'alert'
+      } else if (waterDeficit < 0.10) {
+        maxSeverity['water'] = 'good'
+      } else if (waterDeficit < 0.30) {
+        maxSeverity['water'] = 'attention'
+      }
     }
 
     return recs.map(rec => {

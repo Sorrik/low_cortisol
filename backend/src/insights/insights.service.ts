@@ -299,6 +299,13 @@ export class InsightsService {
           userProfile.weeklyTrainingMinutes && userProfile.weeklyTrainingMinutes > 0
             ? userProfile.weeklyTrainingMinutes / 7
             : undefined,
+        // Личная норма белка (1.0 г/кг массы тела, минимум 60г).
+        // Без неё правило protein_deficit использует фиксированные 50/80г,
+        // что несправедливо для крупных юзеров (95кг → норма 95г).
+        personalProteinTarget:
+          userProfile.weightKg && userProfile.weightKg > 0
+            ? Math.max(60, Math.round(userProfile.weightKg * 1.0))
+            : undefined,
       },
     )
 
@@ -404,6 +411,7 @@ export class InsightsService {
       userProfile,
       causalChainsResult.chains,
       feedbackSummary,
+      calorieThresholds,
     )
 
     // ── Финальная сборка: consistency + ids + model_meta + structured-trace ──
@@ -484,6 +492,7 @@ export class InsightsService {
     userProfile: Awaited<ReturnType<UserProfileService['getProfileForMl']>>,
     causalChains: CausalChain[],
     feedbackSummary: UserFeedbackSummary,
+    calorieThresholds: { targetCalories: number; minCalories: number; maxCalories: number },
   ): Promise<RecommendationsResult> {
     const llmCacheKey = `llm:${userId}:${stateHash}`
     const cached = await this.cache.get<RecommendationsResult>(llmCacheKey)
@@ -496,6 +505,14 @@ export class InsightsService {
     this.logger.log('[LLM] cache MISS -> GPT')
 
     try {
+      // Персональные нормы для процентных порогов severity. Должны
+      // совпадать с буквой `buildPersonalThresholds` в CausalChainService,
+      // чтобы цепочки и LLM-промпт оперировали одной и той же шкалой.
+      const weightKg = userProfile.weightKg && userProfile.weightKg > 0
+        ? userProfile.weightKg : null
+      const targetProteinG = weightKg ? Math.max(60, Math.round(weightKg * 1.0)) : 60
+      const targetWaterMl  = weightKg ? Math.max(1500, Math.round(weightKg * 30)) : 1500
+
       const enrichedData = {
         ...healthData,
         _user_profile: {
@@ -506,6 +523,11 @@ export class InsightsService {
           baseline_stress: userProfile.baselineStress,
           weekly_training_min: userProfile.weeklyTrainingMinutes,
           sport_goal: userProfile.sportGoal,
+          weight_kg: weightKg,
+          target_calories: calorieThresholds.targetCalories,
+          min_calories:    calorieThresholds.minCalories,
+          target_protein_g: targetProteinG,
+          target_water_ml:  targetWaterMl,
         },
         _causal_chains: causalChains.map(toChainSummary) as CausalChainSummary[],
         _user_feedback: feedbackSummary.totalCount > 0 ? feedbackSummary : undefined,

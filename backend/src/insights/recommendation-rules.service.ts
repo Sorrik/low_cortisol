@@ -56,6 +56,14 @@ export interface UserMetrics {
    * (5 трен/нед × 70 мин = 50 мин/день — это норма для них).
    */
   personalDailyActivityTarget?: number
+
+  /**
+   * Личная норма белка (г/день) = max(60, 1.0 × weightKg). Если задана,
+   * правило protein_deficit проверяет процентный недобор от неё, а не
+   * абсолютный порог 50 г. Защищает крупных юзеров (95кг → норма 95г,
+   * 70г белка для них — реальный дефицит 26%, а не «выше минимума 50г»).
+   */
+  personalProteinTarget?: number
 }
 
 /** Результат одного сработавшего правила */
@@ -214,22 +222,32 @@ export class RecommendationRulesService {
   }
 
   private checkProteinDeficit(m: UserMetrics): RuleResult | null {
-    if (m.nutritionDays < NORMS.MIN_LOG_DAYS)       return null
-    if (m.avgProteinGrams >= NORMS.MIN_PROTEIN)      return null
+    if (m.nutritionDays < NORMS.MIN_LOG_DAYS) return null
 
-    const gap = NORMS.TARGET_PROTEIN - m.avgProteinGrams
+    // Если в профиле задан вес — используем персональную норму (1.0 г/кг),
+    // абсолютный fallback 75г для незаполненного профиля. Дефицит считаем
+    // процентом: <10% — норма, 10-25% — warning, ≥25% — critical.
+    const personalTarget = m.personalProteinTarget ?? NORMS.TARGET_PROTEIN
+    const deficitPct = personalTarget > 0
+      ? (personalTarget - m.avgProteinGrams) / personalTarget
+      : 0
+
+    if (deficitPct < 0.10) return null  // в пределах нормы
+
+    const severity: Severity = deficitPct >= 0.25 ? 'critical' : 'warning'
+    const gap = Math.max(0, personalTarget - m.avgProteinGrams)
 
     return {
       ruleId:        'nutrition.protein_deficit',
       category:      'nutrition',
-      severity:      'warning',
+      severity,
       title:         'Недостаток белка в рационе',
-      shortReason:   `Среднее — ${Math.round(m.avgProteinGrams)}г белка/день (норма ≥${NORMS.MIN_PROTEIN}г).`,
+      shortReason:   `Среднее — ${Math.round(m.avgProteinGrams)}г белка/день (твоя норма ${Math.round(personalTarget)}г).`,
       suggestion:    `Добавь +${Math.round(gap)}г белка: куриное филе 200г = 46г, творог 9% 200г = 34г, яйцо = 12г.`,
-      priority:      70,
+      priority:      severity === 'critical' ? 80 : 65,
       metricValue:   m.avgProteinGrams,
-      threshold:     NORMS.MIN_PROTEIN,
-      deltaFromNorm: m.avgProteinGrams - NORMS.TARGET_PROTEIN,
+      threshold:     personalTarget,
+      deltaFromNorm: m.avgProteinGrams - personalTarget,
       tags:          ['nutrition', 'recovery', 'muscle'],
     }
   }
