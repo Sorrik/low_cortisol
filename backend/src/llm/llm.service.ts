@@ -424,10 +424,18 @@ export class LlmService {
     // Максимальный порог (понижает severity). 5 г белка при норме 75 — это
     // вариативность, а не повод для alert. Универсальное правило:
     // отклонение < 10% от нормы — это «good», 10-25% — «attention».
+    //
+    // Дополнительно: если метрика уверенно в норме или выше — потолок
+    // должен быть «good», а не «attention». Иначе позитивные цепочки
+    // (F1: хороший сон → хорошее настроение) маркируются как «attention»
+    // и звучат как «можно улучшить», хотя смысл — «держи паттерн».
     const maxSeverity: Record<string, 'good' | 'attention' | 'alert'> = {}
-    if (avgStress > 0 && avgStress < 5)                    maxSeverity['stress']   = 'attention'
-    if (avgSleep  > 0 && avgSleep  >= sleepGoal - 0.5)     maxSeverity['sleep']    = 'attention'
-    if (avgMood   > 0 && avgMood   >= 6)                   maxSeverity['mood']     = 'attention'
+    if (avgStress > 0 && avgStress < 4)                    maxSeverity['stress']   = 'good'
+    else if (avgStress > 0 && avgStress < 5)               maxSeverity['stress']   = 'attention'
+    if (avgSleep  > 0 && avgSleep  >= sleepGoal)           maxSeverity['sleep']    = 'good'
+    else if (avgSleep > 0 && avgSleep >= sleepGoal - 0.5)  maxSeverity['sleep']    = 'attention'
+    if (avgMood   > 0 && avgMood   >= 7)                   maxSeverity['mood']     = 'good'
+    else if (avgMood > 0 && avgMood >= 6)                  maxSeverity['mood']     = 'attention'
 
     // Food: одновременно учитываем калории и белок.
     if (avgCalories > 0) {

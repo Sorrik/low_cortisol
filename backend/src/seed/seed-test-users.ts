@@ -155,6 +155,20 @@ const SKIP_OR_SNACK: Meal[] = [
   { description: 'Лапша быстрого приготовления', calories: 320, protein: 7, carbs: 50, fat: 11 },
 ]
 
+// Перекусы для активных юзеров — высокобелковые и осмысленно калорийные.
+const PROTEIN_SNACKS: Meal[] = [
+  { description: 'Творог 5% с орехами и ягодами',    calories: 320, protein: 28, carbs: 22, fat: 14 },
+  { description: 'Греческий йогурт с гранолой и мёдом', calories: 350, protein: 22, carbs: 42, fat:  9 },
+  { description: 'Бутерброд с тунцом и яйцом',       calories: 380, protein: 28, carbs: 30, fat: 16 },
+  { description: 'Банан + миндаль (горсть)',         calories: 280, protein:  8, carbs: 38, fat: 14 },
+]
+
+const POST_WORKOUT_MEALS: Meal[] = [
+  { description: 'Протеиновый коктейль на молоке',  calories: 280, protein: 32, carbs: 24, fat:  6 },
+  { description: 'Куриная грудка с рисом (postWO)', calories: 480, protein: 45, carbs: 50, fat:  8 },
+  { description: 'Омлет из 4 яиц с овощами',        calories: 420, protein: 30, carbs: 12, fat: 28 },
+]
+
 // ── Persona types ─────────────────────────────────────────────
 
 interface DayData {
@@ -459,11 +473,18 @@ const kirill: PersonaDef = {
         { amountMl: 400, time: hhmm(20, 0) },
       ],
       nutrition: [
-        { time: hhmm(7, 30), mealType: 'breakfast', meal: pick(BREAKFASTS_HEALTHY) },
-        { time: hhmm(13, 0), mealType: 'lunch',     meal: pick(LUNCHES_HEALTHY) },
-        // Постренировочный приём
-        ...(trains ? [{ time: hhmm(22, 30), mealType: 'dinner', meal: pick(DINNERS_HEALTHY) }] : []),
-        ...(!trains ? [{ time: hhmm(19, 0), mealType: 'dinner', meal: pick(DINNERS_HEALTHY) }] : []),
+        // Активный мужик 82кг с TDEE ~2989 ккал — реально ест 5-6 раз в день.
+        // 4 приёма ~2700-2900 ккал/день, в тренировочные — +post-workout.
+        { time: hhmm(7, 30),  mealType: 'breakfast', meal: pick(BREAKFASTS_HEALTHY) },
+        { time: hhmm(11, 0),  mealType: 'snack',     meal: pick(PROTEIN_SNACKS) },
+        { time: hhmm(13, 30), mealType: 'lunch',     meal: pick(LUNCHES_HEALTHY) },
+        // Pre-workout перекус только в дни тренировок
+        ...(trains ? [{ time: hhmm(17, 30), mealType: 'snack', meal: pick(PROTEIN_SNACKS) }] : []),
+        // Ужин: после тренировки в 22:30, в обычные дни в 19:00
+        ...(trains
+          ? [{ time: hhmm(22, 30), mealType: 'dinner', meal: pick(POST_WORKOUT_MEALS) }]
+          : [{ time: hhmm(19, 0),  mealType: 'dinner', meal: pick(DINNERS_HEALTHY) }]
+        ),
       ],
     }
   },
