@@ -508,6 +508,22 @@ export function buildRecommendationPrompt(
   const water     = lastNDays(healthData.water,     W)
   const nutrition = lastNDays(healthData.nutrition, W)
 
+  // Питание агрегируется ПО ДНЯМ перед summarize. nutrition массив —
+  // это отдельные приёмы пищи (3 в день у нормального юзера). Если
+  // взять avg напрямую через summarize(nutrition.map(r => r.calories)) —
+  // получим среднее НА ПРИЁМ ПИЩИ, а не на день. Это давало баг
+  // «462 ккал/день» у Маши и «22 г белка/день» у Димы.
+  const nutritionByDay = new Map<string, { calories: number; protein: number }>()
+  for (const r of nutrition) {
+    const day = r.date.slice(0, 10)
+    const prev = nutritionByDay.get(day) ?? { calories: 0, protein: 0 }
+    prev.calories += r.calories || 0
+    prev.protein  += r.protein_grams || 0
+    nutritionByDay.set(day, prev)
+  }
+  const dailyCalories = [...nutritionByDay.values()].map(d => d.calories).filter(c => c > 0)
+  const dailyProtein  = [...nutritionByDay.values()].map(d => d.protein).filter(p => p > 0)
+
   const stats = {
     sleep:    summarize(sleep.map(r => r.duration_hours),      true),
     quality:  summarize(sleep.map(r => r.quality),             true),
@@ -515,8 +531,8 @@ export function buildRecommendationPrompt(
     stress:   summarize(stress.map(r => r.level),              false),
     activity: summarize(activity.map(r => r.duration_minutes), true),
     water:    summarize(water.map(r => r.amount_ml / 250),     true),
-    calories: summarize(nutrition.map(r => r.calories),        true),
-    protein:  summarize(nutrition.map(r => r.protein_grams),   true),
+    calories: summarize(dailyCalories,                          true),
+    protein:  summarize(dailyProtein,                           true),
   }
 
   const badSleepStreak = (() => {
