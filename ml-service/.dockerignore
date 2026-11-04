@@ -6,7 +6,6 @@ __pycache__
 .ruff_cache
 trained_models
 models_verify
-tests
 .env
 .env.*
 Dockerfile
