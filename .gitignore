@@ -1,7 +1,44 @@
-node_modules
-**/__pycache__/
-*.pyc
-*.pyo
-trained_models/
-ml-service/.venv/
+# Dependencies
+node_modules/
+.pnpm-store/
+.venv/
+venv/
+
+# Build output
+dist/
+build/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.keystore
+*.jks
+
+# Generated at runtime
+ml-service/trained_models/
 ml-service/models_verify/
+backend/data/rag/
+
+# Mobile
+mobile/.expo/
+mobile/android/
+mobile/ios/
+
+# Editors and local tools
+.idea/
+.vscode/
+.claude/
+*.log
+.DS_Store
+Thumbs.db

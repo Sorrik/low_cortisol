@@ -1,0 +1,12 @@
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+trained_models
+models_verify
+tests
+.env
+.env.*
+Dockerfile

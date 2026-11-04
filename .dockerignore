@@ -1,37 +1,21 @@
-# Исключаем node_modules везде
-node_modules
 **/node_modules
-
-# Git
+**/dist
+**/.next
+**/coverage
+**/*.tsbuildinfo
 .git
 .gitignore
-
-# Логи
 *.log
-npm-debug.log*
-
-# Окружения
 .env
 .env.*
 !.env.example
-
-# Билды фронтенда
-frontend/.next
-frontend/out
-
-# ML артефакты (не нужны для сборки backend)
-ml-service/trained_models
-
-# Docker
+mobile
+ml-service
+docs
 docker-compose*.yml
 **/Dockerfile
-
-# IDE
 .idea
 .vscode
-*.suo
-*.user
-
-# OS
+.claude
 .DS_Store
 Thumbs.db
