@@ -153,9 +153,9 @@ export type NutritionPayload = {
 
 
 // ── Insights ──────────────────────────────────────────────
-// timeout 35s: холодный старт ML-сервиса (train + predict + LLM) занимает ~15-20с
+// timeout 60s: холодный старт ML-сервиса (train + predict + LLM) занимает ~15-20с
 export const getInsights        = (): Promise<InsightsResponse> =>
-  api.get("/insights/me", { timeout: 35_000 }).then((r) => r.data)
+  api.get("/insights/me", { timeout: 60_000 }).then((r) => r.data)
 export const getRecommendations = () =>
   api.get<{ data: Recommendation[] }>("/insights/recommendations").then(getData)
 

@@ -105,14 +105,6 @@ const severityConfig: Record<SeverityType, {
   },
 }
 
-function getReasonText(rec: Recommendation) {
-  const metric = metricConfig[rec.metric as MetricType] ?? metricConfig.mood
-  const severity = rec.severity as SeverityType
-  if (severity === "alert") return `${metric.label}: показатель требует внимания`
-  if (severity === "attention") return `${metric.label}: есть потенциал для улучшения`
-  return `${metric.label}: показатель стабилен`
-}
-
 function getReferencedSources(text: string, sources: ArticleSource[]) {
   const indexes = Array.from(
     new Set(Array.from(text.matchAll(/\[(\d+)\]/g)).map((match) => Number(match[1]))),
@@ -409,7 +401,6 @@ function RecommendationCard({ rec, sources }: { rec: Recommendation; sources: Ar
               {metric.label}
             </span>
             <h3 className="mt-0.5 text-sm font-semibold leading-tight text-foreground">{rec.title}</h3>
-            <p className="mt-1 text-xs text-foreground/40">{getReasonText(rec)}</p>
           </div>
         </div>
         <div className={`flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 ${severity.badgeBg}`}>

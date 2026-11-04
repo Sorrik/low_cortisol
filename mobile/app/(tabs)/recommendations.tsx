@@ -69,29 +69,6 @@ const phaseLabels: Record<string, { label: string; desc: string; qualityHint: st
   },
 }
 
-function getReasonText(rec: Recommendation) {
-  const metricLabels: Record<MetricType, string> = {
-    sleep: 'Сон',
-    food: 'Питание',
-    mood: 'Настроение',
-    stress: 'Стресс',
-    activity: 'Активность',
-    water: 'Вода',
-  }
-
-  const label = metricLabels[rec.metric] ?? 'Показатель'
-
-  if (rec.severity === 'alert') {
-    return `${label}: показатель требует внимания и может сильнее влиять на общее состояние.`
-  }
-
-  if (rec.severity === 'attention') {
-    return `${label}: есть потенциал для улучшения в ближайшие дни.`
-  }
-
-  return `${label}: показатель сейчас выглядит стабильным, важно сохранить этот уровень.`
-}
-
 function getReferencedSources(text: string, sources: ArticleSource[]) {
   const indexes = Array.from(new Set(
     Array.from(text.matchAll(/\[(\d+)\]/g)).map(match => Number(match[1])),
@@ -359,7 +336,6 @@ function RecommendationCard({
                   </View>
                 </View>
                 <Text style={styles.recTitle} numberOfLines={isExpanded ? undefined : 2}>{rec.title}</Text>
-                <Text style={styles.recReason}>{getReasonText(rec)}</Text>
               </View>
 
               <Animated.View style={{ alignSelf: 'center', transform: [{ rotate: chevronRotate }] }}>
@@ -1290,12 +1266,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     fontWeight: FontWeight.semibold,
     color: colors.foreground,
     lineHeight: 22,
-  },
-  recReason: {
-    fontSize: FontSize.xs,
-    color: colors.mutedForeground,
-    lineHeight: 18,
-    marginTop: 2,
   },
   recDescription: {
     fontSize: FontSize.sm,
