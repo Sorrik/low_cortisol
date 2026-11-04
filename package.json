@@ -6,7 +6,9 @@
     "dev:frontend": "pnpm --filter frontend dev",
     "dev:backend": "pnpm --filter backend start:dev",
     "dev": "pnpm dev:backend & pnpm dev:frontend",
-    "build": "pnpm --filter frontend build && pnpm --filter backend build"
+    "build": "pnpm build:contract && pnpm --filter frontend build && pnpm --filter backend build",
+    "build:contract": "pnpm --filter @lowcor/contract build",
+    "test": "pnpm build:contract && pnpm --filter backend test && pnpm --filter backend test:e2e"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
