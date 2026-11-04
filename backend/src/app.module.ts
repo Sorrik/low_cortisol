@@ -88,8 +88,7 @@ import { AiModule } from './ai/ai.module'
     ]),
 
     // ── 3. Database
-    // synchronize — только если TYPEORM_SYNC=true (строго dev-инструмент).
-    // По умолчанию — миграции (migrationsRun: true), безопасно и для prod, и для dev.
+    // Схема создаётся миграциями при старте, поэтому новая БД готова без ручных шагов.
     TypeOrmModule.forRoot({
       type: 'postgres',
       url: process.env.DATABASE_URL,
@@ -103,8 +102,8 @@ import { AiModule } from './ai/ai.module'
         StressData,
       ],
       migrations: [__dirname + '/migrations/*{.ts,.js}'],
-      migrationsRun: false, // TEMP (локальная проверка): миграции рассчитаны на промежуточную схему, конфликтуют с synchronize. Вернуть true при обычной работе без TYPEORM_SYNC.
-      synchronize: process.env.TYPEORM_SYNC === 'true',
+      migrationsRun: true,
+      synchronize: false,
       autoLoadEntities: true,
     }),
 
@@ -124,7 +123,6 @@ import { AiModule } from './ai/ai.module'
     // ── 5. ML + Insights
     MlModule,
     InsightsModule,
-    UserProfileModule,
 
     // ── 6. AI (voice → form, food vision)
     AiModule,

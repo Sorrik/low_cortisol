@@ -8,15 +8,6 @@ import * as path from 'path';
 import { config as loadEnv } from 'dotenv';
 import { DataSource } from 'typeorm';
 
-import { User }            from './users/user.entity';
-import { UserProfile }     from './user-profile/user-profile.entity';
-import { UserGamification } from './gamification/gamification.entity';
-import { SleepData }       from './sleep/sleep.entity';
-import { MoodData }        from './mood/mood.entity';
-import { StressData }      from './stress/stress.entity';
-import { ActivityData }    from './activity/activity.entity';
-import { WaterData }       from './water/water.entity';
-import { NutritionData }   from './nutrition/nutrition.entity';
 
 // CLI может запускаться из разных CWD (корень монорепо, backend/).
 // Пробуем backend/.env, затем корневой .env, затем полагаемся на process.env.
@@ -40,26 +31,11 @@ if (!databaseUrl) {
   );
 }
 
-// Debug line — полезно для первичной настройки миграций.
-// Маскируем пароль.
-// eslint-disable-next-line no-console
-console.log('[data-source] connecting to:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
-
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: databaseUrl,
   synchronize: false,
   logging: false,
-  entities: [
-    User,
-    UserProfile,
-    UserGamification,
-    SleepData,
-    MoodData,
-    StressData,
-    ActivityData,
-    WaterData,
-    NutritionData,
-  ],
+  entities: ['src/**/*.entity.ts'],
   migrations: ['src/migrations/*.ts'],
 });
