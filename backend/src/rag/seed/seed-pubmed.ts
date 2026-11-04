@@ -478,12 +478,12 @@ async function runUpsert(): Promise<void> {
 
     collection = await chroma.createCollection({
       name: CFG.collectionName,
-      metadata: { description: 'PubMed health articles for RAG' },
+      metadata: { description: 'PubMed health articles for RAG', 'hnsw:space': 'cosine' } as any,
     })
   } else {
     collection = await chroma.getOrCreateCollection({
       name: CFG.collectionName,
-      metadata: { description: 'PubMed health articles for RAG' },
+      metadata: { description: 'PubMed health articles for RAG', 'hnsw:space': 'cosine' } as any,
     })
   }
 
