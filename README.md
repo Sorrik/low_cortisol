@@ -6,17 +6,10 @@
 
 *English summary: a multimodal health-tracking system with a NestJS API, a FastAPI ML service, personal mood models with SHAP explanations, and LLM recommendations backed by RAG over PubMed. It runs with one Docker Compose command and works without paid API keys in demo mode.*
 
-
-
-
-
-
-<img width="1446" height="1090" alt="{61CEE05F-F01B-4193-99B8-E4C07CB6228A}" src="https://github.com/user-attachments/assets/9ac8700a-f7fe-4aa9-80a2-42df3bf9ed15" />
-<img width="1446" height="1086" alt="{51FD9BDE-9D3C-4AF9-8E31-CD6880161A5E}" src="https://github.com/user-attachments/assets/9cb1bf28-da2a-4781-891c-c1b2649e337f" />
-<img width="1443" height="1085" alt="{7B3E5F70-3496-4F0F-85B5-869CD716F30D}" src="https://github.com/user-attachments/assets/fb0a49ef-5b0e-4dd7-a544-76756ab33b7e" />
-<img width="1446" height="1082" alt="image" src="https://github.com/user-attachments/assets/6b4973cb-91a4-4994-aac3-45c48101a4b6" />
-
-
+<img width="1446" height="1090" alt="Главный экран с показателями здоровья" src="https://github.com/user-attachments/assets/9ac8700a-f7fe-4aa9-80a2-42df3bf9ed15" />
+<img width="1446" height="1086" alt="Страница сна: динамика и история записей" src="https://github.com/user-attachments/assets/9cb1bf28-da2a-4781-891c-c1b2649e337f" />
+<img width="1443" height="1085" alt="Персональные рекомендации со ссылками на статьи" src="https://github.com/user-attachments/assets/fb0a49ef-5b0e-4dd7-a544-76756ab33b7e" />
+<img width="1446" height="1082" alt="Достижения и уровни пользователя" src="https://github.com/user-attachments/assets/6b4973cb-91a4-4994-aac3-45c48101a4b6" />
 
 ## Архитектура
 
@@ -47,7 +40,7 @@ flowchart LR
 2. Правила и детектор причинно-следственных цепочек находят проблемы и закономерности.
 3. ML-сервис обучает личную модель и возвращает прогноз настроения с вкладом факторов по SHAP.
 4. RAG подбирает подходящие статьи PubMed.
-5. LLM формирует текст рекомендаций, а сервер проверяет ссылки на статьи и опасные формулировки.
+5. LLM формирует текст рекомендаций и выбирает статьи, а сервер проверяет числа, ссылки и опасные формулировки.
 
 Если ML-сервис или LLM недоступны, пользователь всё равно получает рекомендации по правилам.
 
