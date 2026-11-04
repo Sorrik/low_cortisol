@@ -19,7 +19,10 @@ export class FoodSearchService {
     private readonly fatSecret: FatSecretService,
     private readonly config: ConfigService,
   ) {
-    this.openai = new OpenAI({ apiKey: this.config.get<string>('OPENAI_API_KEY') })
+    this.openai = new OpenAI({
+      apiKey: this.config.get<string>('OPENAI_API_KEY'),
+      baseURL: this.config.get<string>('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+    })
   }
 
   async search(query: string): Promise<FoodItem[]> {

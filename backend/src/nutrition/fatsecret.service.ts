@@ -30,6 +30,8 @@ export class FatSecretService {
   // ── Public ────────────────────────────────────────────────
 
   async search(query: string, maxResults = 10): Promise<FoodItem[]> {
+    if (!this.config.get<string>('FATSECRET_CLIENT_ID')) return []
+
     const token = await this._getToken()
 
     const params = new URLSearchParams({

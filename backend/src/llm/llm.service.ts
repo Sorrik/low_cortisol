@@ -42,6 +42,7 @@ export class LlmService {
   private readonly model:           string
   private readonly translationModel: string
   private readonly requestTimeoutMs: number
+  private readonly isConfigured: boolean
 
   // Кеш переводов PubMed-заголовков (PMID -> русский заголовок).
   // Заголовки статей не меняются, поэтому in-memory кеша достаточно
@@ -68,6 +69,7 @@ export class LlmService {
     private readonly config:     ConfigService,
     private readonly ragService: RagService,
   ) {
+    this.isConfigured = Boolean(this.config.get<string>('OPENAI_API_KEY'))
     this.requestTimeoutMs = Number(this.config.get<string | number>('LLM_TIMEOUT_MS', 20_000)) || 20_000
     this.client = new OpenAI({
       apiKey:  this.config.get<string>('OPENAI_API_KEY'),
@@ -94,6 +96,13 @@ export class LlmService {
     healthData:    any,
     mlPrediction?: MlPrediction | null,
   ): Promise<RecommendationsResult> {
+    // Демо-режим: без ключа LLM и RAG не вызываются. Пустой ответ заставляет
+    // InsightsService вернуть рекомендации по правилам и ML, как при сбое LLM.
+    if (!this.isConfigured) {
+      this.logger.warn('[getRecommendations] OPENAI_API_KEY is not set, LLM is skipped')
+      return { recommendations: [], sources: [] }
+    }
+
     this.logger.log(
       `[getRecommendations] model=${this.model}, ` +
       `ml_phase=${mlPrediction?.phase_mode ?? 'none'}, ` +
