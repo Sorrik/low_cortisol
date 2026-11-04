@@ -6,6 +6,20 @@
 
 *English summary: a multimodal health-tracking system with a NestJS API, a FastAPI ML service, personal mood models with SHAP explanations, and LLM recommendations backed by RAG over PubMed. It runs with one Docker Compose command and works without paid API keys in demo mode.*
 
+
+
+
+
+
+<img width="2199" height="1286" alt="{A95A97D1-EB4F-4020-91A2-151A32061183}" src="https://github.com/user-attachments/assets/0fcaeb39-bdfa-437b-9591-e33c67b389cb" />
+
+<img width="2036" height="1285" alt="{F1D647A1-1EE4-4616-94EB-D304E68C204D}" src="https://github.com/user-attachments/assets/bb745afd-3341-4d31-9819-ee0227078cdb" />
+
+<img width="2002" height="1278" alt="{CB393852-AD29-4C91-B2E6-D1D608E9AD3E}" src="https://github.com/user-attachments/assets/db74c8d1-ca35-460c-978b-780179f01411" />
+
+<img width="1941" height="1286" alt="{4DA263EB-7BE3-44FA-850C-F1308229DB7C}" src="https://github.com/user-attachments/assets/607fdd12-81e9-462e-a913-c210083d8578" />
+
+
 ## Архитектура
 
 ```mermaid
