@@ -2,6 +2,7 @@
 
 import { RelevantArticle } from '../rag/rag.service'
 import type { CausalChainSummary } from '../insights/causal-chain.types'
+import { computeSeverityBounds, criticalMetrics, describeCriticalMetric } from './severity-bounds'
 
 // ── Типы ─────────────────────────────────────────────────────
 
@@ -88,6 +89,11 @@ export interface HealthQueryContext {
   avgWaterGlasses:    number
   avgCalories:        number
   avgProteinGrams:    number
+  /** Доля нехватки от личной нормы: 0.25 значит на четверть меньше нормы. */
+  calorieDeficit:     number
+  proteinDeficit:     number
+  waterDeficit:       number
+  sleepGoalHours:     number
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -208,6 +214,7 @@ export function extractHealthContext(healthData: HealthData): HealthQueryContext
   const dailyProtein = [...byDay.values()].map(d => d.protein).filter(v => v > 0)
   const avgKcal    = dailyKcal.length    ? dailyKcal.reduce((s, v) => s + v, 0)    / dailyKcal.length    : 0
   const avgProtein = dailyProtein.length ? dailyProtein.reduce((s, v) => s + v, 0) / dailyProtein.length : 0
+  const bounds = computeSeverityBounds(healthData, W)
 
   return {
     avgSleepHours:      Math.round(avg(sleep.map(r => r.duration_hours)) * 10) / 10,
@@ -217,6 +224,10 @@ export function extractHealthContext(healthData: HealthData): HealthQueryContext
     avgWaterGlasses:    Math.round(avg(water.map(r => r.amount_ml / 250)) * 10) / 10,
     avgCalories:        Math.round(avgKcal),
     avgProteinGrams:    Math.round(avgProtein),
+    calorieDeficit:     bounds.calorieDeficit,
+    proteinDeficit:     bounds.proteinDeficit,
+    waterDeficit:       bounds.waterDeficit,
+    sleepGoalHours:     bounds.targets.sleep,
   }
 }
 
@@ -365,7 +376,7 @@ function buildProfileSection(p: NonNullable<HealthData['_user_profile']>): strin
     lines.push(`  Вес: ${p.weight_kg} кг`)
   }
   if (p.target_calories) {
-    lines.push(`  Личная норма калорий: ${p.target_calories} ккал/день (мин ${p.min_calories ?? '?'})`)
+    lines.push(`  Личная норма калорий: около ${Math.round(p.target_calories / 10) * 10} ккал/день (мин ${p.min_calories ?? '?'})`)
   }
   if (p.target_protein_g) {
     lines.push(`  Личная норма белка: ${p.target_protein_g} г/день (1.0 г/кг массы тела)`)
@@ -631,9 +642,9 @@ export function buildRecommendationPrompt(
     `   ДОПУСКАЕТСЯ "вечером, за час до сна — короткое дыхательное упражнение"`,
     `   (есть тематика + временное окно + формат).`,
     ``,
-    `   Каждый description ОБЯЗАН содержать реальное числовое значение из данных`,
-    `   там, где это уместно (например: "в среднем 1450 ккал/день — на 600`,
-    `   ниже твоей нормы"). Не выдумывай чисел, не округляй.`,
+    `   Опирайся на реальное число из данных там, где оно помогает понять ситуацию`,
+    `   (например: "не хватает около 600 ккал в день"). Не выдумывай чисел.`,
+    `   Округляй так, как сказал бы человек: "около 1400 ккал", а не "1398.6 ккал".`,
     ``,
     hasShap
       ? [
@@ -645,7 +656,9 @@ export function buildRecommendationPrompt(
       : `2. Опирайся строго на числа из раздела ДАННЫЕ и ПРИЧИННО-СЛЕДСТВЕННЫЕ ЦЕПОЧКИ. Не придумывай проблем которых нет.`,
     ``,
     `3. КОЛИЧЕСТВО И УНИКАЛЬНОСТЬ.`,
-    `   Возвращай 1–4 рекомендации. Если у юзера всё стабильно (нет`,
+    `   Возвращай 1–4 рекомендации. Покажи картину целиком: если рядом с проблемами`,
+    `   есть метрики в норме, добавь 1–2 "good"-карточки про них, чтобы пользователь`,
+    `   видел и то, что уже получается. Если у юзера всё стабильно (нет`,
     `   alert/attention метрик, нет цепочек strong/moderate) — выдай 1–2`,
     `   позитивные ("good") рекомендации, а не натягивай 4 силой.`,
     `   Если есть alert или strong-цепочка — обязательно покрой её.`,
@@ -710,7 +723,7 @@ export function buildRecommendationPrompt(
     `   это на каждой карточке звучит как отчёт, а не как живая реакция.`,
     `   Пиши так, как заботливый человек прокомментировал бы результат другу:`,
     `   можно с лёгким юмором, риторическим вопросом, точечным эмодзи,`,
-    `   неожиданным углом («ты нашла ритм, в который многие месяцами`,
+    `   неожиданным углом («это ритм, в который многие месяцами`,
     `   пытаются попасть» — а не «Уровень активности выше нормы»).`,
     `   Опирайся на цифру, но не обязательно ставить её в начало предложения.`,
     `   1–2 предложения, без канцелярита и штампов «продолжай в том же духе»`,
@@ -732,12 +745,27 @@ export function buildRecommendationPrompt(
     `             Продолжай в том же духе.»`,
     `   Хорошо (живо, конкретно, без канцелярита):`,
     `     title: «Ты держишь настроение стабильно высоким»`,
-    `     desc:  «8.4 из 10 — и это не случайность, а восьмой день подряд.`,
-    `             Похоже, ты нашла свой ритм.»`,
+    `     desc:  «8.4 из 10 — и это не случайность.`,
+    `             Похоже, это уже твой ритм.»`,
     ``,
     `   ╔══ ДЛЯ severity = "attention" / "alert" ══╗`,
-    `   - title называет проблему прямо: «Сон ниже нормы», «Стресс растёт».`,
-    `   - description содержит конкретное действие и цифру отклонения.`,
+    `   - title называет проблему прямо и по-человечески: «Ночи стали короче», «Стресс растёт».`,
+    `   - description переводит цифру в понятный смысл и даёт один маленький шаг`,
+    `     на ближайшие дни с примером. Не пересказывай то, что и так видно из цифр.`,
+    `   Плохо (звучит как отчёт, совет общий):`,
+    `     «Ты потребляешь в среднем 1398.6 ккал в день, что значительно ниже твоей`,
+    `      нормы в 2168 ккал. Попробуй увеличить калорийность питания.»`,
+    `   Хорошо (понятно, сколько это и что сделать завтра):`,
+    `     title: «Еды заметно меньше твоей нормы»`,
+    `     desc:  «Выходит на треть меньше, чем нужно телу: около 770 ккал в день.`,
+    `             Начни с малого: добавь плотный перекус днём.»`,
+    `     title: «Ночи слишком короткие»`,
+    `     desc:  «Около 5.8 ч вместо твоих 8, а самая короткая ночь всего 4 ч.`,
+    `             На этой неделе попробуй ложиться на полчаса раньше.»`,
+    `   Это образцы манеры. Не копируй их фразы, сравнения и продукты:`,
+    `   каждое сравнение должно быть верным для цифр этого пользователя.`,
+    `   Заголовок описывает ситуацию живо. Не пиши ярлыки вроде «Недостаток калорий»,`,
+    `   «Настроение требует внимания», «Сон ниже нормы».`,
     ``,
     `5b. ЗАПРЕЩЁННЫЕ ТЕХНИЧЕСКИЕ ТЕРМИНЫ В description.`,
     `   НЕ пиши пользователю внутренние термины системы. Запрещены формулировки:`,
@@ -750,7 +778,21 @@ export function buildRecommendationPrompt(
     ``,
     `6. СОРТИРОВКА: alert → attention → good.`,
     ``,
-    `7. ТОН: поддерживающий, без осуждения.`,
+    `7. ЖИВОЙ ЯЗЫК — ДЛЯ ВСЕХ КАРТОЧЕК.`,
+    `   Пиши как внимательный знакомый, который разбирается в здоровье, а не как отчёт.`,
+    `   - Начинай каждую карточку по-своему. Не начинай с "Ты спишь в среднем",`,
+    `     "Ты пьёшь в среднем", "Твоё настроение", "Среднее".`,
+    `   - Найди деталь именно из этих данных: разброс, тренд, цель пользователя.`,
+    `     Не придумывай деталей, которых в данных нет, например серий дней подряд.`,
+    `   - Не объясняй общеизвестную пользу сна, воды и еды.`,
+    `   - Запрещены штампы: "что выше твоей нормы", "значительно ниже", "ниже оптимального",`,
+    `     "не дотягивает", "это помогает поддерживать", "способствует", "положительно сказывается",`,
+    `     "негативно сказывается", "увеличить калорийность", "уровень гидратации", "показатель",`,
+    `     "отличный результат", "постарайся", "ты потребляешь", "твоё среднее".`,
+    `   - Пол пользователя неизвестен: не используй слова с указанием рода`,
+    `     ("ты нашла", "ты справился"). Пиши в настоящем времени.`,
+    `   - Короткие предложения: 2-3 на карточку, одна мысль в каждом.`,
+    `   Поддерживай и не осуждай.`,
     ``,
     `8. ФОРМАТ: ТОЛЬКО валидный JSON без markdown, без текста до или после.`,
     ``,
@@ -800,12 +842,18 @@ export function buildRecommendationPrompt(
     `13. ТОН — ПОНИМАЮЩИЙ КОУЧ, НЕ ВРАЧ И НЕ СЕРЖАНТ.`,
     `    Запрещены приказные формулировки: «обязательно», «строго»,`,
     `    «не позже чем», «избегайте». Замени на:`,
-    `       «попробуй», «можно начать с», «стоит обратить внимание на»,`,
-    `       «есть шанс улучшить», «твои данные показывают».`,
+    `       «попробуй», «можно начать с», «начни с малого», «для начала».`,
     `    Используй обращение на «ты» — это персональный коуч, не клиника.`,
     `    Похвала за хорошее ("good") — короткая и конкретная,`,
-    `    без сравнения «как и положено». Просто: «отличный паттерн,`,
-    `    держи его». Никакой воспитательной интонации.`,
+    `    без сравнения «как и положено». Никакой воспитательной интонации.`,
+    ``,
+    `14. ОБЯЗАТЕЛЬНЫЕ ТЕМЫ.`,
+    `    Если в данных есть раздел ОБЯЗАТЕЛЬНЫЕ ТЕМЫ — сделай по каждой теме`,
+    `    отдельную карточку с severity "alert". Пропускать их нельзя.`,
+    ``,
+    `15. СТАТЬИ.`,
+    `    Раздел НАУЧНЫЙ КОНТЕКСТ помогает выбрать совет. Не ставь маркеры вида [N], не пиши`,
+    `    "согласно исследованию" и не пересказывай статьи: ссылки добавляются отдельно.`,
   ].filter(s => s !== '').join('\n')
 
   // ── User prompt — только данные ───────────────────────────
@@ -821,6 +869,7 @@ export function buildRecommendationPrompt(
   parts.push(``)
   parts.push(`Сон:`)
   parts.push(`  Среднее: ${stats.sleep.avg} ч (личная норма: ${sleepNorm} ч)`)
+  parts.push(`  Разброс: от ${stats.sleep.min} до ${stats.sleep.max} ч`)
   parts.push(`  Качество: ${stats.quality.avg}/10`)
   parts.push(`  Тренд: ${TREND_RU[stats.sleep.trend]}`)
   if (badSleepStreak >= 2) {
@@ -841,7 +890,7 @@ export function buildRecommendationPrompt(
   }
   parts.push(``)
   parts.push(`Активность:`)
-  parts.push(`  Среднее: ${stats.activity.avg} мин/день`)
+  parts.push(`  Среднее: ${Math.round(stats.activity.avg)} мин/день (от ${stats.activity.min} до ${stats.activity.max})`)
   parts.push(`  Тренд: ${TREND_RU[stats.activity.trend]}`)
   parts.push(``)
   parts.push(`Вода:`)
@@ -851,10 +900,20 @@ export function buildRecommendationPrompt(
   parts.push(`  Среднее: ${Math.round(stats.water.avg * 250)} мл/день (твоя норма: ${waterTarget} мл)`)
   parts.push(``)
   parts.push(`Питание:`)
-  parts.push(`  Калории: ${stats.calories.avg} ккал/день`)
-  parts.push(`  Белок: ${stats.protein.avg} г/день`)
+  const roundKcal = (value: number) => Math.round(value / 10) * 10
+  parts.push(`  Калории: около ${roundKcal(stats.calories.avg)} ккал/день (от ${roundKcal(stats.calories.min)} до ${roundKcal(stats.calories.max)})`)
+  parts.push(`  Белок: около ${Math.round(stats.protein.avg)} г/день`)
   // Время приёмов пищи — ключевой контекст для кортизола и сна
   buildMealTimingLines(healthData.nutrition, W).forEach(l => parts.push(l))
+
+  // Темы, которые нельзя пропустить. Если LLM всё же пропустит, сервер добавит карточку сам.
+  const bounds = computeSeverityBounds(healthData, W)
+  const critical = criticalMetrics(bounds)
+  if (critical.length > 0) {
+    parts.push(``)
+    parts.push(`ОБЯЗАТЕЛЬНЫЕ ТЕМЫ (см. правило 14):`)
+    critical.forEach(metric => parts.push(`  - ${metric}: ${describeCriticalMetric(metric, bounds)}`))
+  }
 
   // Причинно-следственные цепочки — обязательная основа для рекомендаций
   // согласно правилу 11 system prompt, если в данных есть strong/moderate.
@@ -887,9 +946,9 @@ export function buildRecommendationPrompt(
   // RAG
   if (articles.length > 0) {
     parts.push(``)
-    parts.push(`НАУЧНЫЙ КОНТЕКСТ (PubMed) — можно цитировать как "Согласно исследованию [N]":`)
+    parts.push(`НАУЧНЫЙ КОНТЕКСТ (PubMed), см. правило 15:`)
     articles.forEach((a, i) => {
-      parts.push(`[${i + 1}] ${sanitizeForPrompt(a.title, 200)} (${a.year}, PMID:${sanitizeForPrompt(a.pmid, 20)})`)
+      parts.push(`[${i + 1}] ${sanitizeForPrompt(a.title, 200)} (${a.year}, PMID:${sanitizeForPrompt(a.pmid, 20)}, тема: ${sanitizeForPrompt(a.metric, 20)})`)
       parts.push(`    ${sanitizeForPrompt(a.abstract, 300)}...`)
     })
   }
@@ -903,12 +962,143 @@ export function buildRecommendationPrompt(
   parts.push(`      "metric": "sleep | mood | stress | activity | water | food",`)
   parts.push(`      "severity": "alert | attention | good",`)
   parts.push(`      "title": "до 50 символов",`)
-  parts.push(`      "description": "конкретный совет с числами, 2-3 предложения"`)
+  parts.push(`      "description": "живой текст разговорным языком: деталь из данных и один понятный шаг, 2-3 коротких предложения"`)
   parts.push(`    }`)
   parts.push(`  ]`)
   parts.push(`}`)
 
+  parts.push(``)
+  parts.push(`Перед ответом проверь каждую карточку:`)
+  parts.push(`- Она начинается не так, как соседние, и звучит как живая речь, а не как отчёт.`)
+  parts.push(`- В ней нет штампов из правила 7, советов к точному времени и слов "избегай" и "не позже".`)
+  parts.push(`- Все сравнения верны для цифр этого пользователя, а не взяты из примеров.`)
+  parts.push(`- Если рядом с проблемами есть метрики в норме, среди карточек есть и "good".`)
+
   const userPrompt = parts.join('\n')
 
   return JSON.stringify({ system: systemPrompt, user: userPrompt })
+}
+
+// ── Шаг стиля ─────────────────────────────────────────────────
+// Отдельный короткий промпт: в основном промпте много правил о фактах,
+// и требования к языку модель там выполняет плохо.
+
+const POLISH_EXAMPLES = [
+  {
+    label: 'alert, питание',
+    title: 'Тарелка пока пустовата',
+    text: 'До твоей нормы не хватает около 500 ккал в день. Начни с малого: один плотный перекус днём уже сократит разрыв.',
+  },
+  {
+    label: 'attention, сон',
+    title: 'Ночи стали чуть короче',
+    text: 'Выходит около 6.9 ч вместо твоих 7.5. Сдвинь отбой немного раньше и посмотри, как пройдёт неделя.',
+  },
+  {
+    label: 'attention, стресс',
+    title: 'Напряжение пока не отпускает',
+    text: 'Сейчас около 5.5 из 10. Попробуй оставить вечером немного времени только для себя.',
+  },
+  {
+    label: 'good, вода',
+    title: 'Вода уже стала привычкой',
+    text: 'Около 2300 мл в день, и держится ровно. Похоже, бутылка всегда под рукой.',
+  },
+]
+
+const POLISH_SYSTEM_PROMPT = [
+  `Ты редактор приложения о здоровье. Перепиши карточки так, как написал бы внимательный`,
+  `знакомый, который разбирается в теме. Смысл и факты не меняй.`,
+  ``,
+  `Правила:`,
+  `- Сохрани порядок и число карточек.`,
+  `- Используй только числа из исходной карточки. Новые числа и расчёты не добавляй.`,
+  `- Сохрани идею действия. Не добавляй медицинских утверждений и новых фактов.`,
+  `- Числа не заменяй словами: "восемь дней" вместо цифры тоже считается новым фактом.`,
+  `- Описание: 2 предложения, максимум 3. Заголовок: до 45 символов, живой, не ярлык.`,
+  `- Каждая карточка начинается по-своему.`,
+  `- severity "good": конкретная и короткая похвала, без советов.`,
+  `- severity "attention": спокойно о том, что можно подтянуть, без похвалы.`,
+  `- severity "alert": прямо о проблеме и один маленький шаг, без похвалы и без запугивания.`,
+  `- Обращение на "ты". Пол неизвестен: не используй слова с указанием рода.`,
+  `- Не называй точное время. Не используй повелений "избегай" и "не позже".`,
+  `- Сравнение пиши, только если оно верно для чисел карточки. Норму не называй минимумом.`,
+  `- Если у карточки есть поле previous_problem, прошлый вариант отклонён по этой причине. Исправь её.`,
+  ``,
+  `Запрещённые слова и обороты: продолжай в том же духе, так держать, постарайся, в среднем, средний,`,
+  `ты потребляешь, недостаток, требует внимания, показатель, уровень, значительно, ниже оптимального,`,
+  `не дотягивает, способствует, сказывается, отличный результат, это здорово.`,
+  ``,
+  `Образцы показывают только манеру. Придумай свои слова: ответ с заголовком или фразой образца будет отклонён.`,
+  ...POLISH_EXAMPLES.flatMap(({ label, title, text }) => [
+    `${label}:`,
+    `  заголовок «${title}»`,
+    `  текст «${text}»`,
+  ]),
+].join('\n')
+
+export function buildPolishPrompt(
+  cards: { metric: string; severity: string; title: string; description: string; previous_problem?: string }[],
+): { system: string; user: string } {
+  const payload = cards.map(({ metric, severity, title, description, previous_problem }) => ({
+    metric, severity, title, description, ...(previous_problem ? { previous_problem } : {}),
+  }))
+  return { system: POLISH_SYSTEM_PROMPT, user: JSON.stringify(payload) }
+}
+
+const normalizePhrase = (text: string) =>
+  text.toLowerCase().replace(/ё/g, 'е').replace(/[^а-я\s]/g, ' ').replace(/\s+/g, ' ').trim()
+
+const sentencesOf = (text: string) =>
+  text.split(/[.!?…]+(?=\s|$)/).map(normalizePhrase).filter(Boolean)
+
+const EXAMPLE_TITLES = new Set(POLISH_EXAMPLES.map(({ title }) => normalizePhrase(title)))
+const EXAMPLE_SENTENCES = new Set(POLISH_EXAMPLES.flatMap(({ text }) => sentencesOf(text)))
+
+/** Модель склонна переносить образцы дословно, и для других чисел такие фразы могут быть ложными. */
+export function copiesPolishExample(title: string, description: string): boolean {
+  if (EXAMPLE_TITLES.has(normalizePhrase(title))) return true
+  return sentencesOf(description).some((sentence) => EXAMPLE_SENTENCES.has(sentence))
+}
+
+// ── Шаг ссылок ────────────────────────────────────────────────
+// Статью к карточке выбирает отдельный запрос, который видит аннотации:
+// модель, занятая текстом совета, почти не ставит ссылок.
+
+const CITATION_SYSTEM_PROMPT = [
+  `Ты проверяешь научные ссылки в приложении о здоровье. Для каждой карточки выбери из её списка статью,`,
+  `которая изучает ту же проблему или то же действие, что и карточка.`,
+  ``,
+  `Статья подходит, если она про ту же проблему у людей, даже если условия исследования немного другие.`,
+  `Например, статья о влиянии недосыпа на настроение подходит к карточке о коротком сне,`,
+  `а статья о том, как ограничение калорий влияет на самочувствие, подходит к карточке о нехватке еды.`,
+  ``,
+  `Статья не подходит, если она про животных, узкую группу пациентов, редкое заболевание,`,
+  `другую проблему или только внешне похожие слова. Ограничение сна не равно ограничению питания.`,
+  ``,
+  `Верни для каждой карточки в том же порядке поле source: id статьи или null, если подходящей нет.`,
+  `Одну статью можно выбрать для разных карточек. Лучше null, чем притянутая ссылка.`,
+].join('\n')
+
+export function buildCitationPrompt(
+  cards: {
+    title: string
+    description: string
+    articles: { id: number; title: string; abstract: string }[]
+  }[],
+): { system: string; user: string } {
+  return {
+    system: CITATION_SYSTEM_PROMPT,
+    user: JSON.stringify(
+      cards.map(({ title, description, articles }) => ({
+        title,
+        description,
+        articles: articles.map((article) => ({
+          id: article.id,
+          title: sanitizeForPrompt(article.title, 200),
+          abstract: sanitizeForPrompt(article.abstract, 500),
+        })),
+      })),
+    ),
+  }
 }

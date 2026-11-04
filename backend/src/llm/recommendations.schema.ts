@@ -46,7 +46,7 @@ export const RECOMMENDATIONS_JSON_SCHEMA = {
             },
             description: {
               type: 'string',
-              description: 'Развёрнутое объяснение с конкретным действием, 1-3 предложения',
+              description: 'Живой текст разговорным языком: деталь из данных и один понятный шаг, 2-3 коротких предложения',
             },
             // Опциональная ссылка на причинно-следственную цепочку из контекста.
             // OpenAI strict требует все поля в required и не поддерживает
@@ -85,6 +85,55 @@ export const RECOMMENDATIONS_JSON_SCHEMA = {
                 },
               },
             },
+          },
+        },
+      },
+    },
+  },
+} as const
+
+// Ответ шага, который переписывает готовые карточки живым языком.
+export const POLISH_JSON_SCHEMA = {
+  name:   'PolishedCards',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['cards'],
+    properties: {
+      cards: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['title', 'description'],
+          properties: {
+            title:       { type: 'string' },
+            description: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+} as const
+
+// Ответ шага, который подбирает статью к каждой карточке.
+export const CITATION_JSON_SCHEMA = {
+  name:   'CardCitations',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['cards'],
+    properties: {
+      cards: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['source'],
+          properties: {
+            source: { type: ['integer', 'null'] },
           },
         },
       },

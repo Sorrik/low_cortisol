@@ -58,6 +58,17 @@ const SEARCH_QUERIES: Array<{ query: string; metric: string }> = [
   { query: 'late night eating sleep quality cortisol insulin', metric: 'food' },
   { query: 'intermittent fasting cortisol stress HPA axis', metric: 'food' },
   { query: 'positive affect well-being happiness daily life', metric: 'mood' },
+  { query: 'low energy availability mood fatigue adults', metric: 'food' },
+  { query: 'caloric restriction mood fatigue trial', metric: 'food' },
+  { query: 'undereating energy intake psychological effects', metric: 'food' },
+  { query: 'dietary protein intake adults satiety', metric: 'food' },
+  { query: 'sleep extension short sleepers', metric: 'sleep' },
+  { query: 'short sleep duration fatigue mood adults', metric: 'sleep' },
+  { query: 'breathing relaxation perceived stress adults', metric: 'stress' },
+  { query: 'increased water intake low drinkers mood', metric: 'water' },
+  { query: 'behavioral activation depressed mood adults', metric: 'mood' },
+  { query: 'lifestyle intervention low mood adults', metric: 'mood' },
+  { query: 'walking sedentary adults mood energy', metric: 'activity' },
 ]
 
 const DATA_DIR = path.resolve(__dirname, '../../../data/rag')

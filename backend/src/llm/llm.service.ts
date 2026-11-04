@@ -8,10 +8,22 @@ import {
   detectInjection,
   extractHealthContext,
   MlPrediction,
+  buildCitationPrompt,
+  buildPolishPrompt,
+  copiesPolishExample,
 } from './prompt-builder'
 import { RecommendationDto }  from '../ml/dto/ml-response.dto'
-import { RagService }         from '../rag/rag.service'
+import { RagService, RelevantArticle } from '../rag/rag.service'
 import {
+  buildAttentionCard,
+  buildCriticalCard,
+  computeSeverityBounds,
+  criticalMetrics,
+  SEVERITY_WINDOW_DAYS,
+} from './severity-bounds'
+import {
+  CITATION_JSON_SCHEMA,
+  POLISH_JSON_SCHEMA,
   RECOMMENDATIONS_JSON_SCHEMA,
   VALID_METRICS,
   VALID_SEVERITIES,
@@ -41,6 +53,7 @@ export class LlmService {
   private readonly client: OpenAI
   private readonly model:           string
   private readonly translationModel: string
+  private readonly polishModel: string
   private readonly requestTimeoutMs: number
   private readonly isConfigured: boolean
 
@@ -84,6 +97,8 @@ export class LlmService {
     // Для перевода заголовков PubMed используем ту же (или явно заданную)
     // лёгкую модель. Перевод кэшируется на процесс — повторных вызовов нет.
     this.translationModel = this.config.get<string>('LLM_TRANSLATION_MODEL', this.model)
+    // Для стиля нужна модель сильнее основной: gpt-4o-mini почти не меняет текст.
+    this.polishModel = this.config.get<string>('LLM_POLISH_MODEL', this.model)
   }
 
   // ── Главный метод ─────────────────────────────────────────
@@ -143,19 +158,6 @@ export class LlmService {
       abstract_head: (a.abstract ?? '').slice(0, 300),
     })))
 
-    // ── Источники для фронтенда (с русскими заголовками)
-    const translatedTitles = await this._translateTitles(
-      articles.map(a => ({ pmid: a.pmid, title: a.title })),
-    )
-    const sources: ArticleSource[] = articles.map((a, i) => ({
-      index:   i + 1,
-      pmid:    a.pmid,
-      title:   a.title,
-      titleRu: translatedTitles.get(a.pmid) ?? a.title,
-      year:    a.year,
-      url:     `https://europepmc.org/article/MED/${a.pmid}`,
-    }))
-
     // ── Строим промпт: данные + SHAP + RAG
     const promptPayload = buildRecommendationPrompt(
       healthData,
@@ -176,8 +178,8 @@ export class LlmService {
     try {
       const response = await this.client.chat.completions.create({
         model:       this.model,
-        temperature: 0.2,
-        max_tokens:  800,
+        temperature: 0.6,
+        max_tokens:  1000,
         messages: [
           { role: 'system', content: system },
           { role: 'user',   content: user   },
@@ -196,7 +198,7 @@ export class LlmService {
       const refusal = response.choices?.[0]?.message?.refusal
       if (refusal) {
         this.logger.warn(`[getRecommendations] model refused: ${refusal}`)
-        return { recommendations: [], sources }
+        return { recommendations: [], sources: [] }
       }
 
       // Прокси иногда возвращает HTTP 200 с телом null —
@@ -221,34 +223,54 @@ export class LlmService {
       let recommendations = this._parseResponse(raw)
       this._dump('AFTER _parseResponse', recommendations)
 
-      // ── Safety post-processing (Wave 3) ─────────────────────────────────
+      // ── Постобработка ─────────────────────────────────────────────────
       // Порядок важен:
-      //   1) валидация PMID — иначе фильтр опасности может работать на тексте
-      //      с галлюцинированной ссылкой;
-      //   2) фильтр опасных советов — может ПОДМЕНИТЬ description, потому
-      //      идёт до severity-коррекции;
-      //   3) severity коррекция — уже на чистом тексте.
-      const allowedPmids = new Set(articles.map(a => String(a.pmid)))
-      recommendations = this._stripUnknownPmidRefs(recommendations, allowedPmids)
-      this._dump('AFTER _stripUnknownPmidRefs', recommendations)
-
-      recommendations = this._filterDangerousAdvice(recommendations)
-      this._dump('AFTER _filterDangerousAdvice', recommendations)
+      //   1) маркеры основной генерации убираем: ссылки ставит отдельный шаг;
+      //   2) критичные карточки и severity-коррекция задают итоговый цвет;
+      //   3) шаг стиля переписывает текст под этот цвет, параллельно выбираются ссылки;
+      //   4) фильтр опасных советов проверяет финальный текст и может его подменить.
+      recommendations = this._removeCitations(recommendations)
+      this._dump('AFTER _removeCitations', recommendations)
 
       recommendations = this._dedupeCausalChains(recommendations)
       this._dump('AFTER _dedupeCausalChains', recommendations)
 
+      recommendations = this._ensureCriticalCards(recommendations, healthData)
+      this._dump('AFTER _ensureCriticalCards', recommendations)
+
       recommendations = this._correctSeverities(recommendations, healthData)
       this._dump('AFTER _correctSeverities', recommendations)
 
+      const deadline = Date.now() + LlmService.STEPS_BUDGET_MS
+      const [polished, citations] = await Promise.all([
+        this._polishCards(recommendations, healthData, deadline),
+        this._selectCitations(recommendations, articles, deadline),
+      ])
+      this._dump('AFTER _polishCards', polished)
+
+      recommendations = this._filterDangerousAdvice(polished)
+      this._dump('AFTER _filterDangerousAdvice', recommendations)
+
       // Финальный шаг — нормализуем good-карточки. LLM может вписать
-      // негатив («Настроение ухудшается», «но наблюдается ухудшение»)
-      // даже при severity=good, потому что видит мелкий нисходящий тренд.
-      // Для пользователя с метриками в норме это вредная коммуникация —
-      // подменяем title/description поддерживающим шаблоном.
+      // негатив даже при severity=good, потому что видит мелкий нисходящий тренд.
       recommendations = this._normalizeGoodCards(recommendations, healthData)
-      this._dump('AFTER _normalizeGoodCards (final)', recommendations)
-      return { recommendations, sources }
+      this._dump('AFTER _normalizeGoodCards', recommendations)
+
+      recommendations = this._sortBySeverity(this._attachCitations(recommendations, citations))
+      const cited = this._renumberCitations(recommendations, articles)
+      const translatedTitles = await this._translateTitles(
+        cited.articles.map(a => ({ pmid: a.pmid, title: a.title })),
+      )
+      const sources: ArticleSource[] = cited.articles.map((a, i) => ({
+        index:   i + 1,
+        pmid:    a.pmid,
+        title:   a.title,
+        titleRu: translatedTitles.get(a.pmid) ?? a.title,
+        year:    a.year,
+        url:     `https://europepmc.org/article/MED/${a.pmid}`,
+      }))
+      this._dump('FINAL', { recommendations: cited.recommendations, sources })
+      return { recommendations: cited.recommendations, sources }
 
     } catch (err) {
       this.logger.error(`[getRecommendations] OpenAI error: ${err}`)
@@ -256,36 +278,254 @@ export class LlmService {
     }
   }
 
-  // ── Safety: PMID валидация ────────────────────────────────────────────
-  //
-  // LLM может сослаться на статью маркером [N], где N — порядковый номер
-  // в нашем списке. Иногда модель выдумывает новые номера ([7] при 3
-  // статьях), и фронт строит URL europepmc.org/article/MED/{выдуманный}.
-  // Здесь сверяем, что N действительно есть в retrieved-наборе по позиции
-  // (1..articles.length). Если нет — удаляем маркер из description, чтобы
-  // пользователь не вёл по битой ссылке.
+  // ── Ссылки на статьи ──────────────────────────────────────────────────
 
-  private _stripUnknownPmidRefs(
-    recs: RecommendationDto[],
-    allowedPmids: Set<string>,
-  ): RecommendationDto[] {
-    const allowedIndices = new Set<number>(
-      Array.from({ length: allowedPmids.size }, (_, i) => i + 1),
-    )
-
+  private _removeCitations(recs: RecommendationDto[]): RecommendationDto[] {
     return recs.map(rec => {
-      const cleaned = rec.description.replace(/\[(\d+)\]/g, (match, num) => {
-        const n = Number(num)
-        if (allowedIndices.has(n)) return match
-        this.logger.warn(
-          `[safety] stripped unknown PMID ref [${n}] from rule_id=${rec.rule_id ?? '-'} ` +
-          `(allowed: 1..${allowedPmids.size})`,
-        )
-        return ''
-      }).replace(/\s{2,}/g, ' ').trim()
-
-      return cleaned === rec.description ? rec : { ...rec, description: cleaned }
+      const description = rec.description
+        .replace(/\[\d+\]/g, '')
+        .replace(/\s+([.,;:!?])/g, '$1')
+        .replace(/\s{2,}/g, ' ')
+        .trim()
+      return description === rec.description ? rec : { ...rec, description }
     })
+  }
+
+  /**
+   * Для каждой карточки возвращает номер подходящей статьи или null. Модели показываем
+   * только статьи той же темы. Исключения: настроение связано со всеми метриками, а карточка
+   * с причинной цепочкой охватывает несколько тем. Ответ модели сверяем с этим списком.
+   */
+  private async _selectCitations(
+    recs: RecommendationDto[],
+    articles: RelevantArticle[],
+    deadline = Date.now() + LlmService.STEPS_BUDGET_MS,
+  ): Promise<(number | null)[]> {
+    const none = recs.map(() => null)
+    const offers = recs.map(rec => articles
+      .map((article, index) => ({ ...article, id: index + 1 }))
+      .filter(article => rec.metric === 'mood' || rec.causal_chain || article.metric === rec.metric))
+    if (offers.every(offer => offer.length === 0)) return none
+
+    try {
+      const { system, user } = buildCitationPrompt(
+        recs.map((rec, i) => ({ title: rec.title, description: rec.description, articles: offers[i] })),
+      )
+      const response = await this.client.chat.completions.create({
+        model:       this.polishModel,
+        temperature: 0,
+        max_tokens:  300,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user',   content: user   },
+        ],
+        response_format: { type: 'json_schema', json_schema: CITATION_JSON_SCHEMA },
+      }, {
+        timeout: this._stepTimeoutMs(deadline),
+      })
+
+      const cards = JSON.parse(response.choices?.[0]?.message?.content ?? '')?.cards
+      if (!Array.isArray(cards) || cards.length !== recs.length) {
+        this.logger.warn('[citations] неверное число карточек, ссылки не добавлены')
+        return none
+      }
+      return recs.map((_, i) => {
+        const source = cards[i]?.source
+        return offers[i].some(article => article.id === source) ? source : null
+      })
+    } catch (err) {
+      this.logger.warn(`[citations] failed: ${err}`)
+      return none
+    }
+  }
+
+  /** Маркер ставим после первого предложения: статья подтверждает описанную там проблему. */
+  private _attachCitations(
+    recs: RecommendationDto[],
+    citations: (number | null)[],
+  ): RecommendationDto[] {
+    return recs.map((rec, i) => {
+      const source = citations[i]
+      if (!source || rec.title === LlmService.BLOCKED_CARD_TITLE) return rec
+      const end = rec.description.search(/[.!?…](?=\s|$)/)
+      const description = end === -1
+        ? `${rec.description} [${source}]`
+        : `${rec.description.slice(0, end + 1)} [${source}]${rec.description.slice(end + 1)}`
+      return { ...rec, description }
+    })
+  }
+
+  /** В источники попадают только процитированные статьи, с номерами по порядку упоминания. */
+  private _renumberCitations(
+    recs: RecommendationDto[],
+    articles: RelevantArticle[],
+  ): { recommendations: RecommendationDto[]; articles: RelevantArticle[] } {
+    const newIndex = new Map<number, number>()
+    const recommendations = recs.map(rec => {
+      const description = rec.description.replace(/\[(\d+)\]/g, (match, num) => {
+        const oldIndex = Number(num)
+        if (!articles[oldIndex - 1]) return ''
+        if (!newIndex.has(oldIndex)) newIndex.set(oldIndex, newIndex.size + 1)
+        return `[${newIndex.get(oldIndex)}]`
+      })
+      return description === rec.description ? rec : { ...rec, description }
+    })
+    return {
+      recommendations,
+      articles: [...newIndex.keys()].map(oldIndex => articles[oldIndex - 1]),
+    }
+  }
+
+  /**
+   * LLM может пропустить критичную метрику или похвалить её. Такой совет
+   * не должен зависеть от генерации, поэтому сервер добавляет или заменяет карточку.
+   */
+  private _ensureCriticalCards(
+    recs: RecommendationDto[],
+    healthData: any,
+  ): RecommendationDto[] {
+    const bounds = computeSeverityBounds(healthData)
+    const result = [...recs]
+    for (const metric of criticalMetrics(bounds)) {
+      const index = result.findIndex(rec => rec.metric === metric)
+      if (index === -1) {
+        this.logger.warn(`[critical] LLM пропустила метрику ${metric}, добавлена карточка`)
+        result.push(buildCriticalCard(metric, bounds))
+      } else if (!result.some(rec => rec.metric === metric && rec.severity !== 'good')) {
+        this.logger.warn(`[critical] LLM похвалила метрику ${metric}, карточка заменена`)
+        result[index] = buildCriticalCard(metric, bounds)
+      }
+    }
+    return result
+  }
+
+  private _stepTimeoutMs(deadline: number): number {
+    return Math.min(this.requestTimeoutMs, Math.max(deadline - Date.now(), 1))
+  }
+
+  /**
+   * Переписывает карточки живым языком. Отклонённые карточки уходят на второй проход
+   * с указанием причины, а затем получают запасной текст: штамп не должен дойти до экрана.
+   */
+  private async _polishCards(
+    recs: RecommendationDto[],
+    healthData: any = {},
+    deadline = Date.now() + LlmService.STEPS_BUDGET_MS,
+  ): Promise<RecommendationDto[]> {
+    if (recs.length === 0) return recs
+
+    const result = [...recs]
+    const problems = new Map<number, string>()
+    let pending = recs.map((_, i) => i)
+
+    for (let attempt = 0; attempt < LlmService.POLISH_ATTEMPTS && pending.length > 0; attempt++) {
+      if (Date.now() >= deadline) break
+      const cards = await this._requestPolish(
+        pending.map(i => ({ ...recs[i], previous_problem: problems.get(i) })),
+        deadline,
+      )
+      if (!cards) break
+
+      const rejected: number[] = []
+      pending.forEach((index, position) => {
+        const problem = this._polishProblem(recs[index], cards[position])
+        if (problem) {
+          problems.set(index, problem)
+          rejected.push(index)
+        } else {
+          result[index] = {
+            ...recs[index],
+            title: cards[position].title.trim(),
+            description: cards[position].description.trim(),
+          }
+        }
+      })
+      pending = rejected
+    }
+
+    for (const index of pending) {
+      this.logger.warn(`[polish] ${recs[index].metric}: ${problems.get(index) ?? 'нет ответа'}, запасной текст`)
+      result[index] = this._fallbackCard(recs[index], healthData)
+    }
+    return result
+  }
+
+  private async _requestPolish(
+    cards: (RecommendationDto & { previous_problem?: string })[],
+    deadline: number,
+  ): Promise<{ title: string; description: string }[] | null> {
+    try {
+      const { system, user } = buildPolishPrompt(cards)
+      const response = await this.client.chat.completions.create({
+        model:       this.polishModel,
+        temperature: 0.7,
+        max_tokens:  1000,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user',   content: user   },
+        ],
+        response_format: { type: 'json_schema', json_schema: POLISH_JSON_SCHEMA },
+      }, {
+        timeout: this._stepTimeoutMs(deadline),
+      })
+
+      const polished = JSON.parse(response.choices?.[0]?.message?.content ?? '')?.cards
+      if (Array.isArray(polished) && polished.length === cards.length) return polished
+      this.logger.warn('[polish] неверное число карточек в ответе')
+      return null
+    } catch (err) {
+      this.logger.warn(`[polish] failed: ${err}`)
+      return null
+    }
+  }
+
+  /** Возвращает причину отклонения текста или null, если текст годится. */
+  private _polishProblem(rec: RecommendationDto, card: any): string | null {
+    if (!card?.title?.trim() || !card?.description?.trim()) return 'пустой заголовок или текст'
+
+    const text = `${card.title} ${card.description}`
+    const stamp = text.match(LlmService.STAMP_PATTERN)?.[0]
+    if (stamp) return `запрещённый оборот «${stamp}»`
+    if (LlmService.GENDERED_PATTERN.test(text)) return 'слово с указанием рода'
+    if (copiesPolishExample(card.title, card.description)) return 'фраза скопирована из образца'
+
+    const numbers = (value: string) => new Set(
+      (value.match(/\d+(?:[.,]\d+)?/g) ?? []).map(n => n.replace(',', '.')),
+    )
+    const original = numbers(`${rec.title} ${rec.description}`)
+    const polished = numbers(text)
+    const added = [...polished].find(n => !original.has(n))
+    if (added) return `новое число ${added}, можно использовать только исходные`
+    if (original.size > 0 && polished.size === 0) return 'пропали все исходные числа'
+    return null
+  }
+
+  /** Текст для карточки, которую шаг стиля не смог переписать. */
+  private _fallbackCard(rec: RecommendationDto, healthData: any): RecommendationDto {
+    const bounds = computeSeverityBounds(healthData)
+    const useServerText = (card: { title: string; description: string }) => ({
+      ...rec,
+      title: card.title,
+      description: card.description,
+    })
+
+    if (rec.severity === 'alert' && criticalMetrics(bounds).includes(rec.metric)) {
+      return useServerText(buildCriticalCard(rec.metric, bounds))
+    }
+    const clean = !LlmService.STAMP_PATTERN.test(`${rec.title} ${rec.description}`)
+      && !LlmService.GENDERED_PATTERN.test(`${rec.title} ${rec.description}`)
+    if (clean) return rec
+
+    if (rec.severity === 'good') {
+      const template = this._goodCardTemplates(healthData)[rec.metric]
+      return template ? { ...rec, title: template.title, description: template.desc } : rec
+    }
+    return useServerText(buildAttentionCard(rec.metric, bounds))
+  }
+
+  private _sortBySeverity(recs: RecommendationDto[]): RecommendationDto[] {
+    const rank: Record<string, number> = { alert: 0, attention: 1, good: 2 }
+    return [...recs].sort((a, b) => (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3))
   }
 
   // ── Safety: фильтр опасных советов ─────────────────────────────────────
@@ -321,7 +561,7 @@ export class LlmService {
           )
           return {
             ...rec,
-            title: 'Совет требует обсуждения со специалистом',
+            title: LlmService.BLOCKED_CARD_TITLE,
             description:
               'По этой метрике система предлагала шаг, который мы не показываем без ' +
               'консультации врача (приём препаратов, голодание, экстремальные нагрузки и т.п.). ' +
@@ -384,118 +624,8 @@ export class LlmService {
   ): RecommendationDto[] {
     const SEVERITY_ORDER = { good: 0, attention: 1, alert: 2 }
 
-    const avgOf = (arr: any[], key: string) =>
-      arr.length ? arr.reduce((s: number, r: any) => s + (r[key] ?? 0), 0) / arr.length : 0
-
-    // Питание: nutrition массив = отдельные приёмы. avgOf даёт среднее
-    // НА ПРИЁМ, а проверки ниже — на ДЕНЬ (< 1200 ккал/день и т.п.).
-    // Поэтому аггрегируем по дням так же, как в prompt-builder.
-    const nutritionByDay = new Map<string, { calories: number; protein: number; days: number }>()
-    for (const r of (healthData.nutrition ?? []) as Array<{ date?: string; calories?: number; protein_grams?: number }>) {
-      const day = (r.date ?? 'unknown').slice(0, 10)
-      const prev = nutritionByDay.get(day) ?? { calories: 0, protein: 0, days: 1 }
-      prev.calories += r.calories ?? 0
-      prev.protein  += r.protein_grams ?? 0
-      nutritionByDay.set(day, prev)
-    }
-    const dailyCalArr  = [...nutritionByDay.values()].map(d => d.calories).filter(c => c > 0)
-    const dailyProtArr = [...nutritionByDay.values()].map(d => d.protein).filter(p => p > 0)
-    const avgCalories  = dailyCalArr.length  ? dailyCalArr.reduce((s, v)  => s + v, 0) / dailyCalArr.length  : 0
-    const avgProtein   = dailyProtArr.length ? dailyProtArr.reduce((s, v) => s + v, 0) / dailyProtArr.length : 0
-
-    const avgSleep    = avgOf(healthData.sleep     ?? [], 'duration_hours')
-    const avgStress   = avgOf(healthData.stress    ?? [], 'level')
-    const avgMood     = avgOf(healthData.mood      ?? [], 'mood_score')
-
-    const profile = healthData._user_profile ?? {}
-    const sleepGoal = (profile.sleep_goal_hours as number | undefined) ?? 8
-    const baseline  = (profile.baseline_stress  as number | undefined) ?? 5
-    // Персональные нормы. Если в профиле не заданы — используем
-    // популяционные fallback'и, чтобы не блокировать недозаполненных юзеров.
-    const targetCalories = (profile.target_calories  as number | undefined) ?? 2000
-    const targetProtein  = (profile.target_protein_g as number | undefined) ?? 75
-    const targetWaterMl  = (profile.target_water_ml  as number | undefined) ?? 2000
-
-    // Процентное отклонение от персональной нормы. Защищает от
-    // несправедливости абсолютных порогов: «70г белка» — alert для маленькой
-    // женщины (норма 55) и good для крупного мужчины (норма 95).
-    const proteinDeficit = avgProtein > 0
-      ? (targetProtein - avgProtein) / targetProtein  // 0.25 = 25% дефицит
-      : 0
-    const calorieDeficit = avgCalories > 0
-      ? (targetCalories - avgCalories) / targetCalories
-      : 0
-
-    // Минимальный порог (повышает severity): метрика в опасном диапазоне
-    const minSeverity: Record<string, 'good' | 'attention' | 'alert'> = {}
-    if (avgCalories > 0) {
-      // alert: ≥25% недобор от персональной нормы калорий ИЛИ >75% профицит
-      if (calorieDeficit >= 0.25 || avgCalories > targetCalories * 1.75) {
-        minSeverity['food'] = 'alert'
-      } else if (avgProtein > 0 && proteinDeficit >= 0.25) {
-        // alert: ≥25% недобор белка
-        minSeverity['food'] = 'alert'
-      }
-    }
-    if (avgSleep > 0) {
-      if (avgSleep < 5.5)      minSeverity['sleep'] = 'alert'
-      else if (avgSleep > 10)  minSeverity['sleep'] = 'attention'
-    }
-    if (avgStress > 0) {
-      if (avgStress > 8) {
-        minSeverity['stress'] = 'alert'
-      } else if (avgStress > 7 || (avgStress - baseline >= 2 && avgStress > 5)) {
-        minSeverity['stress'] = 'attention'
-      }
-    }
-    if (avgMood > 0) {
-      if (avgMood < 4)        minSeverity['mood'] = 'alert'
-      else if (avgMood < 6)   minSeverity['mood'] = 'attention'
-    }
-
-    // Максимальный порог (понижает severity). 5 г белка при норме 75 — это
-    // вариативность, а не повод для alert. Универсальное правило:
-    // отклонение < 10% от нормы — это «good», 10-25% — «attention».
-    //
-    // Дополнительно: если метрика уверенно в норме или выше — потолок
-    // должен быть «good», а не «attention». Иначе позитивные цепочки
-    // (F1: хороший сон → хорошее настроение) маркируются как «attention»
-    // и звучат как «можно улучшить», хотя смысл — «держи паттерн».
-    const maxSeverity: Record<string, 'good' | 'attention' | 'alert'> = {}
-    if (avgStress > 0 && avgStress < 4)                    maxSeverity['stress']   = 'good'
-    else if (avgStress > 0 && avgStress < 5)               maxSeverity['stress']   = 'attention'
-    if (avgSleep  > 0 && avgSleep  >= sleepGoal)           maxSeverity['sleep']    = 'good'
-    else if (avgSleep > 0 && avgSleep >= sleepGoal - 0.5)  maxSeverity['sleep']    = 'attention'
-    if (avgMood   > 0 && avgMood   >= 7)                   maxSeverity['mood']     = 'good'
-    else if (avgMood > 0 && avgMood >= 6)                  maxSeverity['mood']     = 'attention'
-
-    // Food: одновременно учитываем калории и белок.
-    if (avgCalories > 0) {
-      const maxDeficit = Math.max(calorieDeficit, proteinDeficit)
-      if (maxDeficit < 0.10) {
-        maxSeverity['food'] = 'good'      // < 10% — норма
-      } else if (maxDeficit < 0.25) {
-        maxSeverity['food'] = 'attention' // 10-25% — заметно, но не alert
-      }
-      // ≥ 25% — alert, потолок не применяется
-    }
-
-    // Water: тот же принцип — процентное отклонение от персональной нормы.
-    // Берём avg по дням из healthData.water (там уже daily-aggregated по SQL).
-    const dailyWater = (healthData.water ?? [])
-      .map((r: { amount_ml?: number }) => r.amount_ml ?? 0)
-      .filter((v: number) => v > 0)
-    if (dailyWater.length > 0) {
-      const avgWater = dailyWater.reduce((s: number, v: number) => s + v, 0) / dailyWater.length
-      const waterDeficit = (targetWaterMl - avgWater) / targetWaterMl
-      if (waterDeficit >= 0.50) {
-        minSeverity['water'] = 'alert'
-      } else if (waterDeficit < 0.10) {
-        maxSeverity['water'] = 'good'
-      } else if (waterDeficit < 0.30) {
-        maxSeverity['water'] = 'attention'
-      }
-    }
+    const { averages, floor: minSeverity, ceil: maxSeverity } = computeSeverityBounds(healthData)
+    const { calories: avgCalories, sleep: avgSleep, stress: avgStress, mood: avgMood } = averages
 
     return recs.map(rec => {
       let { severity } = rec
@@ -609,6 +739,8 @@ export class LlmService {
           },
           { role: 'user', content: numbered },
         ],
+      }, {
+        timeout: LlmService.TRANSLATION_TIMEOUT_MS,
       })
 
       const raw = response.choices?.[0]?.message?.content?.trim() ?? ''
@@ -652,6 +784,15 @@ export class LlmService {
   // «следует» намеренно НЕ входят сюда — это нейтральные слова, которые
   // ломают естественность текста, если запретить их целиком (см. правку
   // промпта: разрешены, если фраза в целом звучит позитивно).
+  private static readonly POLISH_ATTEMPTS = 2
+  /** Общий бюджет шагов стиля и ссылок: клиент не должен ждать ответ слишком долго. */
+  private static readonly STEPS_BUDGET_MS = 15_000
+  private static readonly TRANSLATION_TIMEOUT_MS = 5_000
+  private static readonly BLOCKED_CARD_TITLE = 'Совет требует обсуждения со специалистом'
+  private static readonly STAMP_PATTERN =
+    /недостат\S*|в том же духе|так держать|постарайся|ты потребляешь|требует внимания|показател\S*|уровн\S*|уровень|в среднем|средн(?:ий|ее|яя|его|ем)(?![а-яё])|значительно|ниже оптимального|не дотягива\S*|способствует|сказыва\S*|отличный результат|это здорово/i
+  private static readonly GENDERED_PATTERN = /(^|[\s,.!?])(ты|чем|как)\s+[а-яё]+(л|ла)(?=[\s,.!?]|$)/i
+
   private static readonly NEGATIVE_PATTERNS = [
     /ухудш/i, /снижа/i, /снизил/i, /падае/i, /упал/i,
     /\bниже\b/i, /\bхуже\b/i, /слабее/i,
@@ -661,27 +802,14 @@ export class LlmService {
     /недобор/i, /не дотягива/i,
   ] as const
 
-  private _normalizeGoodCards(
-    recs: RecommendationDto[],
-    healthData: any,
-  ): RecommendationDto[] {
-    const avgOf = (arr: any[], key: string) =>
-      arr.length ? arr.reduce((s: number, r: any) => s + (r[key] ?? 0), 0) / arr.length : 0
-
-    const avgSleep    = avgOf(healthData.sleep    ?? [], 'duration_hours')
-    const avgMood     = avgOf(healthData.mood     ?? [], 'mood_score')
-    const avgStress   = avgOf(healthData.stress   ?? [], 'level')
-    const avgActivity = avgOf(healthData.activity ?? [], 'duration_minutes')
-
-    // Вода — сумма по дню (поле amount_ml — мл за раз), агрегируем
-    const waterByDay = new Map<string, number>()
-    for (const r of (healthData.water ?? []) as Array<{ date?: string; amount_ml?: number }>) {
-      const day = (r.date ?? 'unknown').slice(0, 10)
-      waterByDay.set(day, (waterByDay.get(day) ?? 0) + (r.amount_ml ?? 0))
-    }
-    const dailyWater = [...waterByDay.values()].filter(v => v > 0)
-    const avgWaterMl = dailyWater.length
-      ? dailyWater.reduce((s, v) => s + v, 0) / dailyWater.length
+  private _goodCardTemplates(healthData: any): Record<string, { title: string; desc: string }> {
+    const { sleep: avgSleep, mood: avgMood, stress: avgStress, water: avgWaterMl } =
+      computeSeverityBounds(healthData).averages
+    const activityRecords = [...(healthData.activity ?? [])]
+      .sort((a: any, b: any) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
+      .slice(-SEVERITY_WINDOW_DAYS)
+    const avgActivity = activityRecords.length
+      ? activityRecords.reduce((sum: number, r: any) => sum + (r.duration_minutes ?? 0), 0) / activityRecords.length
       : 0
 
     const r1 = (n: number) => Math.round(n * 10) / 10
@@ -690,29 +818,38 @@ export class LlmService {
     const templates: Record<string, { title: string; desc: string }> = {
       mood: {
         title: 'Стабильно хорошее настроение',
-        desc:  `Среднее настроение ${r1(avgMood)}/10 — устойчиво высокий уровень. Так держать!`,
+        desc:  `Около ${r1(avgMood)} из 10 за неделю, и это не разовая удача. Похоже, у тебя сложился рабочий ритм.`,
       },
       sleep: {
         title: 'Хороший сон',
-        desc:  `Средняя продолжительность сна ${r1(avgSleep)} ч — отличный режим. Продолжай в том же духе.`,
+        desc:  `Около ${r1(avgSleep)} ч за ночь, и такой режим уже держится. Организм скажет за это спасибо.`,
       },
       stress: {
         title: 'Стресс под контролем',
-        desc:  `Средний уровень стресса ${r1(avgStress)}/10 — комфортный диапазон. Отличный самоконтроль!`,
+        desc:  `Около ${r1(avgStress)} из 10 за неделю. Спокойная неделя, и это хороший запас сил на следующую.`,
       },
       activity: {
         title: 'Отличная активность',
-        desc:  `Среднее время активности ${r0(avgActivity)} мин/день — выше нормы. Так держать!`,
+        desc:  `Около ${r0(avgActivity)} минут движения в день. Такой темп легко сделать привычкой.`,
       },
       water: {
         title: 'Хороший уровень гидратации',
-        desc:  `Среднее потребление воды ${r0(avgWaterMl)} мл/день — отлично. Продолжай в том же духе.`,
+        desc:  `Около ${r0(avgWaterMl / 50) * 50} мл в день. Похоже, бутылка с водой уже стала привычкой.`,
       },
       food: {
         title: 'Питание в порядке',
-        desc:  `Рацион стабильно соответствует твоим целям. Поддерживай этот баланс.`,
+        desc:  `Рацион совпадает с твоими целями, и это видно по неделе в целом, а не по одному удачному дню.`,
       },
     }
+
+    return templates
+  }
+
+  private _normalizeGoodCards(
+    recs: RecommendationDto[],
+    healthData: any,
+  ): RecommendationDto[] {
+    const templates = this._goodCardTemplates(healthData)
 
     const hasNegative = (s: string): boolean =>
       LlmService.NEGATIVE_PATTERNS.some(p => p.test(s))

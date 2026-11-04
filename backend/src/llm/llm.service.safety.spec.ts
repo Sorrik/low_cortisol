@@ -1,6 +1,5 @@
 /**
  * Узкий тест на safety-постпроцессинг LlmService:
- *   - PMID validation: маркеры [N] для несуществующих в RAG индексов вырезаются.
  *   - Danger-pattern filter: опасные советы (лекарства/голодание/экстремальные
  *     тренировки/отказ от воды) подменяются безопасным шаблоном.
  *
@@ -37,38 +36,6 @@ const baseRec = (overrides: Partial<RecommendationDto> = {}): RecommendationDto 
 })
 
 describe('LlmService safety post-processing', () => {
-  describe('_stripUnknownPmidRefs', () => {
-    it('сохраняет валидные ссылки [1], [2] когда retrieved-список 2 статьи', () => {
-      const svc = makeService() as any
-      const allowed = new Set(['100', '200'])
-      const recs = [
-        baseRec({ description: 'См. исследование [1] и [2] про сон' }),
-      ]
-      const out = svc._stripUnknownPmidRefs(recs, allowed)
-      expect(out[0].description).toContain('[1]')
-      expect(out[0].description).toContain('[2]')
-    })
-
-    it('вырезает несуществующие [7] при retrieved=3', () => {
-      const svc = makeService() as any
-      const allowed = new Set(['100', '200', '300'])
-      const recs = [
-        baseRec({ description: 'Согласно [7] нужно больше воды.' }),
-      ]
-      const out = svc._stripUnknownPmidRefs(recs, allowed)
-      expect(out[0].description).not.toContain('[7]')
-      expect(out[0].description).toMatch(/Согласно\s+нужно/)
-    })
-
-    it('возвращает тот же объект без изменений если ссылок нет', () => {
-      const svc = makeService() as any
-      const allowed = new Set(['100'])
-      const orig = baseRec({ description: 'Простой совет без ссылок' })
-      const out = svc._stripUnknownPmidRefs([orig], allowed)
-      expect(out[0]).toBe(orig)
-    })
-  })
-
   describe('_filterDangerousAdvice', () => {
     const cases: { name: string; bad: string }[] = [
       { name: 'голодание',       bad: 'Попробуй голодай 3 дня — это поможет' },

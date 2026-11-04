@@ -4,6 +4,18 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { ChromaClient, Collection, EmbeddingFunction } from 'chromadb'
 
+// Заголовки и аннотации PubMed иногда содержат HTML-сущности, например A&#x3b2;.
+const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
+
+export function decodeHtmlEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (match, entity: string) => {
+    const lower = entity.toLowerCase()
+    if (!lower.startsWith('#')) return NAMED_ENTITIES[lower] ?? match
+    const code = lower.startsWith('#x') ? parseInt(lower.slice(2), 16) : parseInt(lower.slice(1), 10)
+    return code <= 0x10ffff ? String.fromCodePoint(code) : match
+  })
+}
+
 export interface RelevantArticle {
   pmid: string
   title: string
@@ -104,17 +116,23 @@ export class RagService implements OnModuleInit {
       return []
     }
 
-    const queries = this._buildSemanticQueries(healthSummary)
-    this.logger.log(`[findRelevantArticles] queries: ${queries.join(' | ')}`)
+    const topics = buildRagTopics(healthSummary)
+    this.logger.log(`[findRelevantArticles] topics: ${topics.map(t => `${t.metric}: ${t.query}`).join(' | ')}`)
 
     try {
-      const results = await this.collection.query({
-        queryTexts: queries,
+      const collection = this.collection
+      // Каждую тему ищем только среди статей этой метрики, чтобы одна тема не вытесняла другие.
+      const results = await Promise.all(topics.map(topic => collection.query({
+        queryTexts: [topic.query],
         nResults: this.TOP_K,
+        where: { metric: topic.metric },
         include: ['documents', 'metadatas', 'distances'] as any,
-      })
+      })))
 
-      const articles = this._deduplicateAndRank(results)
+      const seen = new Set<string>()
+      const articles = results
+        .flatMap(result => this._rankByRelevance(result))
+        .filter(article => !seen.has(article.pmid) && Boolean(seen.add(article.pmid)))
       this.logger.log(`[findRelevantArticles] found ${articles.length} articles`)
       return articles
     } catch (err) {
@@ -148,41 +166,7 @@ export class RagService implements OnModuleInit {
     }
   }
 
-  private _buildSemanticQueries(ctx: HealthQueryContext): string[] {
-    const queries: string[] = []
-
-    // Проблемные сценарии — пороги смягчены, чтобы покрыть и
-    // «субоптимальные» состояния (сон 7-7.5ч и т.п.), которые в карточках
-    // могут оказаться attention/alert по личной норме.
-    if (ctx.avgSleepHours < 6)        queries.push('sleep deprivation health consequences cortisol mood')
-    else if (ctx.avgSleepHours < 7.5) queries.push('insufficient sleep cognitive performance well-being')
-
-    if (ctx.avgStress >= 5)           queries.push('chronic stress cortisol reduction intervention')
-    if (ctx.avgActivityMinutes < 30)  queries.push('physical activity exercise mental health depression')
-    if (ctx.avgWaterGlasses < 8)      queries.push('dehydration cognitive function mood fatigue')
-    if (ctx.avgMood < 6)              queries.push('low mood intervention lifestyle mental health')
-
-    // Питание: дефицит белка ИЛИ низкая калорийность
-    if (ctx.avgProteinGrams > 0 && ctx.avgProteinGrams < 70) {
-      queries.push('protein intake mood serotonin tryptophan deficiency')
-    }
-    if (ctx.avgCalories > 0 && ctx.avgCalories < 1500) {
-      queries.push('caloric restriction fatigue mood cognitive function')
-    }
-
-    // Если всё в норме — ищем статьи про поддержание хороших привычек,
-    // чтобы и good-карточки имели научную подложку
-    if (queries.length === 0) {
-      if (ctx.avgSleepHours >= 7)       queries.push('healthy sleep quality circadian rhythm benefits')
-      if (ctx.avgActivityMinutes >= 20) queries.push('regular physical activity benefits mood well-being')
-      if (ctx.avgMood >= 7)             queries.push('positive affect well-being happiness daily life')
-      if (queries.length === 0)         queries.push('lifestyle health optimization well-being')
-    }
-
-    return queries.slice(0, 3)
-  }
-
-  private _deduplicateAndRank(results: any): RelevantArticle[] {
+  private _rankByRelevance(results: any): RelevantArticle[] {
     const seen = new Set<string>()
     const articles: RelevantArticle[] = []
     let droppedCount = 0
@@ -214,11 +198,11 @@ export class RagService implements OnModuleInit {
 
         const relevance = Math.max(0, 1 - distance / 2)
         const doc = docs[i] ?? ''
-        const abstract = doc.replace(/^Title:.*?\n\nAbstract:\s*/s, '').slice(0, 800)
+        const abstract = decodeHtmlEntities(doc.replace(/^Title:.*?\n\nAbstract:\s*/s, '')).slice(0, 800)
 
         articles.push({
           pmid: String(pmid),
-          title: String(meta?.title ?? ''),
+          title: decodeHtmlEntities(String(meta?.title ?? '')),
           abstract,
           year: String(meta?.year ?? ''),
           metric: String(meta?.metric ?? ''),
@@ -234,7 +218,7 @@ export class RagService implements OnModuleInit {
       )
     }
 
-    return articles.sort((a, b) => b.relevance - a.relevance).slice(0, 3)
+    return articles.sort((a, b) => b.relevance - a.relevance)
   }
 }
 
@@ -246,4 +230,60 @@ export interface HealthQueryContext {
   avgWaterGlasses: number
   avgCalories: number
   avgProteinGrams: number
+  /** Доля нехватки от личной нормы: 0.25 значит на четверть меньше нормы. */
+  calorieDeficit: number
+  proteinDeficit: number
+  waterDeficit: number
+  sleepGoalHours: number
+}
+
+export interface RagTopic {
+  metric: string
+  query: string
+}
+
+const MAX_RAG_TOPICS = 4
+
+/** Темы поиска статей: сначала самые серьёзные проблемы относительно личной нормы. */
+export function buildRagTopics(ctx: HealthQueryContext): RagTopic[] {
+  const scored: (RagTopic & { score: number })[] = []
+  const add = (score: number, metric: string, query: string) => scored.push({ score, metric, query })
+
+  if (ctx.calorieDeficit <= -0.5) {
+    add(-ctx.calorieDeficit, 'food', 'excess calorie intake overeating health')
+  } else if (ctx.calorieDeficit >= 0.1) {
+    add(ctx.calorieDeficit, 'food', 'low energy intake undereating fatigue mood')
+  }
+  if (ctx.proteinDeficit >= 0.1 && ctx.proteinDeficit > ctx.calorieDeficit) {
+    add(ctx.proteinDeficit, 'food', 'low dietary protein intake adults mood muscle')
+  }
+  if (ctx.waterDeficit >= 0.1) {
+    add(ctx.waterDeficit, 'water', 'low water intake dehydration mood fatigue')
+  }
+  if (ctx.avgSleepHours > 0 && ctx.avgSleepHours < ctx.sleepGoalHours) {
+    const shortfall = (ctx.sleepGoalHours - ctx.avgSleepHours) / ctx.sleepGoalHours
+    add(shortfall, 'sleep', 'short sleep duration fatigue mood adults')
+  }
+  if (ctx.avgStress >= 5) {
+    add((ctx.avgStress - 4) / 10, 'stress', 'chronic stress reduction relaxation adults')
+  }
+  if (ctx.avgMood > 0 && ctx.avgMood < 6) {
+    add((6 - ctx.avgMood) / 6, 'mood', 'low mood lifestyle intervention adults')
+  }
+  if (ctx.avgActivityMinutes < 30) {
+    add((30 - ctx.avgActivityMinutes) / 60, 'activity', 'physical activity mood energy sedentary adults')
+  }
+
+  const topics = scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_RAG_TOPICS)
+    .map(({ metric, query }) => ({ metric, query }))
+  if (topics.length > 0) return topics
+
+  // Если всё в норме, ищем статьи о поддержании хороших привычек.
+  return [
+    { metric: 'sleep', query: 'healthy sleep quality circadian rhythm benefits' },
+    { metric: 'activity', query: 'regular physical activity benefits mood well-being' },
+    { metric: 'mood', query: 'positive affect well-being happiness daily life' },
+  ]
 }
