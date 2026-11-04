@@ -1,21 +1,19 @@
+# Все порты, кроме API, доступны только с этой машины (127.0.0.1).
+# API открыт в локальной сети, чтобы мобильное приложение могло достучаться с телефона.
 services:
   postgres:
     image: postgres:16
-    container_name: low_cortisol_spike_db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:?Скопируйте .env.example в .env}
+      POSTGRES_USER: ${DB_USER:?Скопируйте .env.example в .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Скопируйте .env.example в .env}
     ports:
-      - "5434:5432"
+      - "127.0.0.1:5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # init.sql отключён: старая MVP-схема (users/sleep_data/mood_data) конфликтует
-      # с текущими TypeORM-сущностями. Схему создаёт synchronize (TYPEORM_SYNC=true).
-      # - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -26,34 +24,30 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: low_cortisol_spike_api
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
       NODE_ENV: ${NODE_ENV:-development}
-      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-low_cortisol_spike}
-      TYPEORM_SYNC: ${TYPEORM_SYNC:-false}
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
-      CORS_ORIGINS: ${CORS_ORIGINS}
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
+      JWT_SECRET: ${JWT_SECRET:?Скопируйте .env.example в .env}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Скопируйте .env.example в .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001}
       ML_SERVICE_URL: http://ml-service:8000
-      # OpenAI / proxyapi — основной LLM-провайдер: chat + embeddings + vision/voice
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
+      CHROMA_URL: http://chromadb:8000
+      PORT: 3000
+      # Без OPENAI_API_KEY сервис работает в демо-режиме: только правила и ML, без LLM и RAG.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-20000}
-      EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-openai}
-      # LLM_PROMPT_DUMP=1 включает дамп system/user промптов и сырого ответа
-      # модели в лог. Для отладки. На обычной разработке держим выключенным.
-      LLM_PROMPT_DUMP: ${LLM_PROMPT_DUMP:-0}
       VISION_MODEL: ${VISION_MODEL:-gpt-4o-mini}
       VOICE_PARSE_MODEL: ${VOICE_PARSE_MODEL:-gpt-4o-mini}
       TRANSCRIBE_BACKEND: ${TRANSCRIBE_BACKEND:-ml_service}
-      FATSECRET_CLIENT_ID: ${FATSECRET_CLIENT_ID}
-      FATSECRET_CLIENT_SECRET: ${FATSECRET_CLIENT_SECRET}
-      CHROMA_URL: http://chromadb:8000
-      PORT: 3000
+      FATSECRET_CLIENT_ID: ${FATSECRET_CLIENT_ID:-}
+      FATSECRET_CLIENT_SECRET: ${FATSECRET_CLIENT_SECRET:-}
+      # 1 печатает полные промпты и ответы LLM в лог. Только для локальной отладки.
+      LLM_PROMPT_DUMP: ${LLM_PROMPT_DUMP:-0}
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,6 +55,7 @@ services:
         condition: service_started
     volumes:
       - ./backend/src:/app/backend/src
+      - rag_data:/app/backend/data/rag
     networks:
       - app-network
 
@@ -68,29 +63,23 @@ services:
     build:
       context: ./ml-service
       dockerfile: Dockerfile
-    container_name: low_cortisol_spike_ml
     restart: unless-stopped
+    # В сервисе нет авторизации, поэтому наружу он не публикуется.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       PYTHONUNBUFFERED: 1
       MODEL_PATH: /app/trained_models
-      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-low_cortisol_spike}
-      CHROMA_URL: http://chromadb:8000
-      CORS_ORIGINS: ${CORS_ORIGINS}
-      # Параметры локального Whisper (faster-whisper)
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001}
+      WHISPER_PRELOAD: ${WHISPER_PRELOAD:-1}
       WHISPER_MODEL_SIZE: ${WHISPER_MODEL_SIZE:-small}
       WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
       WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
-      # HuggingFace кэш моделей, чтобы при перезапуске контейнера не перекачивать
       HF_HOME: /root/.cache/huggingface
     volumes:
-      - ./ml-service/trained_models:/app/trained_models
+      - ml_models:/app/trained_models
       - ./ml-service/app:/app/app
       - whisper_cache:/root/.cache/huggingface
-    depends_on:
-      postgres:
-        condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     networks:
       - app-network
@@ -101,21 +90,17 @@ services:
       dockerfile: frontend/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: http://localhost:3000
-    container_name: low_cortisol_spike_frontend
     restart: unless-stopped
     ports:
-      - "3001:3000"
+      - "127.0.0.1:3001:3000"
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:3000
       WATCHPACK_POLLING: "true"
       CHOKIDAR_USEPOLLING: "true"
     volumes:
-      # Монтируем исходники с хоста, чтобы Next.js dev-сервер
-      # подхватывал изменения без пересборки образа.
+      # Исходники с хоста, чтобы dev-сервер подхватывал правки без пересборки.
       - ./frontend:/app/frontend
-      - ./packages/contract:/app/packages/contract
-      # Анонимные тома: прячут host-вские node_modules/.next под контейнерными.
-      # Иначе volume выше затирает их и контейнер падает.
+      # Анонимные тома, чтобы хостовые node_modules и .next не перекрывали контейнерные.
       - /app/frontend/node_modules
       - /app/frontend/.next
     depends_on:
@@ -123,31 +108,30 @@ services:
     networks:
       - app-network
 
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: low_cortisol_spike_pgadmin
+  chromadb:
+    # Образ закреплён по digest: это проверенная версия Chroma 1.4.4.
+    image: chromadb/chroma@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6
     restart: unless-stopped
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
     ports:
-      - "8080:80"
-    depends_on:
-      postgres:
-        condition: service_healthy
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - chromadb_data:/data
     networks:
       - app-network
 
-  chromadb:
-    image: chromadb/chroma:latest
-    container_name: low_cortisol_spike_chromadb
+  # Необязательный веб-интерфейс к БД: docker compose --profile tools up -d pgadmin
+  pgadmin:
+    image: dpage/pgadmin4:9.8
+    profiles: ["tools"]
     restart: unless-stopped
-    ports:
-      - "8001:8000"
-    volumes:
-      - chromadb_data:/chroma/chroma
     environment:
-      ALLOW_RESET: "true"
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?Скопируйте .env.example в .env}
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - app-network
 
@@ -155,6 +139,8 @@ volumes:
   postgres_data:
   chromadb_data:
   whisper_cache:
+  ml_models:
+  rag_data:
 
 networks:
   app-network:

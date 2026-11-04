@@ -20,7 +20,7 @@ export class MlService {
   ) {
     this.mlBaseUrl = this.configService.get<string>(
       'ML_SERVICE_URL',
-      'http://low_cortisol_spike_ml:8000',
+      'http://ml-service:8000',
     );
   }
 

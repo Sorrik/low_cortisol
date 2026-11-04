@@ -17,6 +17,9 @@ RUN pnpm install --frozen-lockfile
 COPY packages/contract ./packages/contract
 COPY frontend ./frontend
 
+# dist пакета contract не хранится в git
+RUN pnpm --filter @lowcor/contract build
+
 WORKDIR /app/frontend
 
 EXPOSE 3000
