@@ -2,7 +2,6 @@
 
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService }      from '@nestjs/config'
-import { raw } from 'express'
 
 export interface FoodItem {
   food_id: string
@@ -48,15 +47,9 @@ export class FatSecretService {
       this.logger.error(`[search] FatSecret error: ${res.status}`)
       return []
     }
+    const raw = await res.json()
+    const foods = raw?.foods?.food
 
-        const text = await res.text()
-        console.log('FatSecret status:', res.status)
-        console.log('FatSecret raw text:', text.slice(0, 1000))
-
-        const raw = JSON.parse(text)
-        const foods = raw?.foods?.food
-        console.log('foods field:', foods)
-    
     if (!foods) return []
 
     const list = Array.isArray(foods) ? foods : [foods]
@@ -96,9 +89,6 @@ export class FatSecretService {
     const clientId     = this.config.get<string>('FATSECRET_CLIENT_ID')
     const clientSecret = this.config.get<string>('FATSECRET_CLIENT_SECRET')
     const credentials  = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
-
-    console.log('CLIENT_ID:', clientId)
-    console.log('CLIENT_SECRET:', clientSecret)
     const res = await fetch(this.tokenUrl, {
       method: 'POST',
       headers: {
