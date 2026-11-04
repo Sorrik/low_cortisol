@@ -1,8 +1,7 @@
 // backend/src/insights/causal-chain.types.ts
 //
 // Типы для CausalChainService — выявление причинно-следственных цепочек
-// между метриками. См. план в design notes
-// (16 паттернов A1–F2).
+// между метриками. (16 паттернов A1–F2).
 
 export type CausalMetric =
   | 'sleep'

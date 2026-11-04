@@ -49,7 +49,7 @@ export class LlmService {
   // на время жизни процесса. На 90 статьях это десятки KB.
   private readonly titleTranslationCache = new Map<string, string>()
   /**
-   * TEMP debug-флаг для аудита качества рекомендаций. При LLM_PROMPT_DUMP=1
+   * Отладочный флаг для аудита качества рекомендаций. При LLM_PROMPT_DUMP=1
    * в лог печатается полный system/user промпт, retrieved-статьи, сырой
    * ответ OpenAI и рекомендации на каждой стадии постобработки.
    * Использовать только на dev-окружении при ручной проверке.

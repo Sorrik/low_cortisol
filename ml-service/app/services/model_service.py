@@ -499,6 +499,9 @@ def _factor_description(factor: str, raw_shap: float, value: float) -> str:
     sign   = "+" if val >= 0 else ""
 
     descriptions: Dict[str, str] = {
+        # ── Календарь
+        "dow_sin":                  f"День недели {dw} настроение на {impact}",
+        "dow_cos":                  f"День недели {dw} настроение на {impact}",
         # ── Сон
         "sleep_duration_mean":      f"Средний сон {val}ч за 14 дней {dw} настроение на {impact}",
         "sleep_duration_t":         f"Вчера сон {val}ч {dw} настроение на {impact}",
