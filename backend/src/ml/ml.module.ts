@@ -3,7 +3,6 @@ import { HttpModule } from '@nestjs/axios';
 import { ConfigModule } from '@nestjs/config';
 
 import { MlService } from './ml.service';
-import { MlController } from './ml.controller';
 
 @Module({
   imports: [
@@ -13,7 +12,6 @@ import { MlController } from './ml.controller';
     }),
     ConfigModule,
   ],
-  controllers: [MlController],
   providers: [MlService],
   exports: [MlService],  // ← другие модули смогут инжектить MlService
 })

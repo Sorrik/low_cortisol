@@ -1,10 +1,13 @@
 import asyncio
+import logging
 import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import insights, predict, train, transcribe
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="LowCortisol ML Service",
@@ -20,11 +23,11 @@ async def preload_whisper() -> None:
 
     def _warm() -> None:
         try:
-            print("[whisper-preload] started (model loading in background)", flush=True)
+            logger.info("Whisper preload started")
             transcribe._get_model()
-            print("[whisper-preload] done - ready for transcription", flush=True)
-        except Exception as e:
-            print(f"[whisper-preload] FAILED: {e}", flush=True)
+            logger.info("Whisper model is ready")
+        except Exception:
+            logger.exception("Whisper preload failed")
 
     asyncio.get_event_loop().run_in_executor(None, _warm)
 

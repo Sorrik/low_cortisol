@@ -90,7 +90,7 @@ async def transcribe(
         raise
     except Exception as err:
         logger.exception("Transcribe failed")
-        raise HTTPException(status_code=500, detail=f"Transcribe failed: {err}")
+        raise HTTPException(status_code=500, detail="Transcribe failed") from err
     finally:
         if tmp_path and os.path.exists(tmp_path):
             try:
