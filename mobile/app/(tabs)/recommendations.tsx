@@ -200,34 +200,41 @@ function StatCard({
   )
 }
 
-const SOURCE_LABELS: Record<NonNullable<NonNullable<Recommendation['trigger_signal']>['source']>, string> = {
-  rule:        'правило',
-  ml_shap:     'ML (SHAP)',
-  llm:         'LLM',
-  consistency: 'расхождение в данных',
-  fallback:    'резерв',
-}
-
 function WhyBlock({ rec }: { rec: Recommendation }) {
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
   const [open, setOpen] = useState(false)
   const ts = rec.trigger_signal
-  if (!ts && !rec.rule_id) return null
+  if (!ts) return null
 
   const fmt = (v?: number | null, digits = 1) =>
     v == null || !Number.isFinite(v) ? '—' : v.toFixed(digits)
 
+  // Отклонение в процентах от персональной нормы — понятнее, чем σ
+  const deviationPct =
+    ts.current_value != null && ts.personal_baseline != null && ts.personal_baseline !== 0
+      ? ((ts.current_value - ts.personal_baseline) / Math.abs(ts.personal_baseline)) * 100
+      : null
+
   const confColor =
-    ts?.confidence === 'high'   ? colors.success :
-    ts?.confidence === 'medium' ? colors.warning :
-    ts?.confidence === 'low'    ? colors.destructive :
+    ts.confidence === 'high'   ? colors.success :
+    ts.confidence === 'medium' ? colors.warning :
+    ts.confidence === 'low'    ? colors.destructive :
     colors.mutedForeground
 
   const confLabel =
-    ts?.confidence === 'high'   ? 'Высокая' :
-    ts?.confidence === 'medium' ? 'Средняя' :
-    ts?.confidence === 'low'    ? 'Низкая'  : null
+    ts.confidence === 'high'   ? 'Высокая' :
+    ts.confidence === 'medium' ? 'Средняя' :
+    ts.confidence === 'low'    ? 'Низкая'  : null
+
+  // Если нет ни одного user-friendly поля — не рендерим
+  if (ts.current_value == null && ts.personal_baseline == null && !confLabel) return null
+
+  const deviationColor =
+    deviationPct == null ? colors.mutedForeground :
+    Math.abs(deviationPct) < 10 ? colors.success :
+    Math.abs(deviationPct) < 25 ? colors.warning :
+    colors.destructive
 
   return (
     <View style={styles.whyWrap}>
@@ -239,8 +246,8 @@ function WhyBlock({ rec }: { rec: Recommendation }) {
         activeOpacity={0.7}
         style={styles.whyToggle}
       >
-        <Ionicons name="analytics-outline" size={14} color={colors.mutedForeground} />
-        <Text style={styles.whyToggleText}>Почему мы это советуем</Text>
+        <Ionicons name="information-circle-outline" size={14} color={colors.mutedForeground} />
+        <Text style={styles.whyToggleText}>Почему этот совет</Text>
         <Ionicons
           name={open ? 'chevron-up' : 'chevron-down'}
           size={14}
@@ -250,53 +257,34 @@ function WhyBlock({ rec }: { rec: Recommendation }) {
       </TouchableOpacity>
       {open ? (
         <View style={styles.whyBox}>
-          {ts?.source ? (
-            <Text style={styles.whyLine}>
-              <Text style={styles.whyLabel}>Источник: </Text>
-              <Text style={styles.whyValue}>{SOURCE_LABELS[ts.source]}</Text>
-              {rec.rule_id ? (
-                <Text style={styles.whyMuted}>{` (${rec.rule_id})`}</Text>
-              ) : null}
-            </Text>
-          ) : rec.rule_id ? (
-            <Text style={styles.whyLine}>
-              <Text style={styles.whyLabel}>rule_id: </Text>
-              <Text style={styles.whyValue}>{rec.rule_id}</Text>
-            </Text>
-          ) : null}
-
-          {ts?.current_value != null ? (
-            <Text style={styles.whyLine}>
-              <Text style={styles.whyLabel}>Сейчас: </Text>
+          {ts.current_value != null ? (
+            <View style={styles.whyRow}>
+              <Text style={styles.whyLabel}>Сейчас</Text>
               <Text style={styles.whyValue}>{fmt(ts.current_value)}</Text>
-              {ts.personal_baseline != null ? (
-                <>
-                  <Text style={styles.whyLabel}>{' · твоя норма за 30 дней: '}</Text>
-                  <Text style={styles.whyValue}>{fmt(ts.personal_baseline)}</Text>
-                </>
-              ) : null}
-            </Text>
+            </View>
           ) : null}
 
-          {ts?.z_score != null ? (
-            <Text style={styles.whyLine}>
-              <Text style={styles.whyLabel}>Отклонение от нормы: </Text>
-              <Text style={styles.whyValue}>{(ts.z_score >= 0 ? '+' : '') + fmt(ts.z_score, 2)}σ</Text>
-            </Text>
+          {ts.personal_baseline != null ? (
+            <View style={styles.whyRow}>
+              <Text style={styles.whyLabel}>Ваша норма (30 дн.)</Text>
+              <Text style={styles.whyValue}>{fmt(ts.personal_baseline)}</Text>
+            </View>
           ) : null}
 
-          {ts?.shap_contribution != null ? (
-            <Text style={styles.whyLine}>
-              <Text style={styles.whyLabel}>Вклад в прогноз настроения: </Text>
-              <Text style={styles.whyValue}>{(ts.shap_contribution >= 0 ? '+' : '') + fmt(ts.shap_contribution, 2)}</Text>
-            </Text>
+          {deviationPct != null && Math.abs(deviationPct) >= 1 ? (
+            <View style={styles.whyRow}>
+              <Text style={styles.whyLabel}>Отклонение</Text>
+              <Text style={[styles.whyValue, { color: deviationColor }]}>
+                {(deviationPct >= 0 ? '+' : '') + Math.round(deviationPct)}%
+              </Text>
+            </View>
           ) : null}
 
           {confLabel ? (
-            <Text style={styles.whyLine}>
-              <Text style={styles.whyLabel}>Уверенность: </Text>
+            <View style={styles.whyRow}>
+              <Text style={styles.whyLabel}>Уверенность</Text>
               <Text style={[styles.whyValue, { color: confColor }]}>{confLabel}</Text>
-            </Text>
+            </View>
           ) : null}
         </View>
       ) : null}
@@ -488,6 +476,116 @@ function FeedbackButtons({ rec }: { rec: Recommendation }) {
         <Text style={styles.feedbackError}>{error}</Text>
       ) : null}
     </View>
+  )
+}
+
+// Анимированный мульти-шаговый индикатор загрузки. RN-аналог веб-версии:
+// крутящееся кольцо вокруг иконки + смена иконки/текста раз в 1.4с +
+// прогресс-точки. Пульсирующий glow на фоне.
+function RecommendationsLoader() {
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
+  const [step, setStep] = useState(0)
+
+  const spinAnim = useRef(new Animated.Value(0)).current
+  const glowAnim = useRef(new Animated.Value(0)).current
+  const stepFade = useRef(new Animated.Value(1)).current
+
+  const steps = useMemo(() => [
+    { icon: 'analytics-outline' as const, label: 'Анализирую ваши данные', hint: 'Собираю записи за последние недели' },
+    { icon: 'flash-outline' as const,     label: 'Ищу паттерны',           hint: 'Проверяю корреляции между метриками' },
+    { icon: 'sparkles' as const,           label: 'Готовлю советы',         hint: 'Подбираю персональные рекомендации' },
+  ], [])
+
+  // Бесконечное вращение кольца (1.5с / оборот)
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(spinAnim, {
+        toValue: 1,
+        duration: 1500,
+        useNativeDriver: true,
+      })
+    )
+    loop.start()
+    return () => loop.stop()
+  }, [spinAnim])
+
+  // Пульсация glow (scale + opacity)
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowAnim, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(glowAnim, { toValue: 0, duration: 900, useNativeDriver: true }),
+      ])
+    )
+    loop.start()
+    return () => loop.stop()
+  }, [glowAnim])
+
+  // Смена шага каждые 1.4с с fade-in
+  useEffect(() => {
+    const interval = setInterval(() => {
+      Animated.sequence([
+        Animated.timing(stepFade, { toValue: 0, duration: 200, useNativeDriver: true }),
+        Animated.timing(stepFade, { toValue: 1, duration: 300, useNativeDriver: true }),
+      ]).start()
+      setTimeout(() => setStep(s => (s + 1) % steps.length), 200)
+    }, 1400)
+    return () => clearInterval(interval)
+  }, [steps.length, stepFade])
+
+  const spin = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] })
+  const glowScale = glowAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.15] })
+  const glowOpacity = glowAnim.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] })
+
+  const StepIcon = steps[step].icon
+
+  return (
+    <AnimatedCard index={5} style={styles.loaderCard}>
+      <View style={styles.loaderContent}>
+        {/* Pulsing ambient glow */}
+        <Animated.View
+          style={[
+            styles.loaderGlow,
+            { backgroundColor: colors.gold, opacity: glowOpacity, transform: [{ scale: glowScale }] },
+          ]}
+        />
+
+        {/* Иконка с вращающимся кольцом */}
+        <View style={styles.loaderIconWrap}>
+          <Animated.View style={[styles.loaderRing, { transform: [{ rotate: spin }] }]} />
+          <View style={[styles.loaderIconInner, { backgroundColor: colors.goldMuted }]}>
+            <Ionicons name={StepIcon} size={28} color={colors.gold} />
+          </View>
+        </View>
+
+        {/* Текущий шаг с fade-in */}
+        <Animated.View style={{ opacity: stepFade, alignItems: 'center' }}>
+          <Text style={styles.loaderLabel}>{steps[step].label}</Text>
+          <Text style={styles.loaderHint}>{steps[step].hint}</Text>
+        </Animated.View>
+
+        {/* Прогресс-точки */}
+        <View style={styles.loaderDotsRow}>
+          {steps.map((_, i) => (
+            <View
+              key={i}
+              style={[
+                styles.loaderDot,
+                {
+                  width: i === step ? 32 : 6,
+                  backgroundColor: i === step
+                    ? colors.gold
+                    : i < step
+                      ? `${colors.gold}99`
+                      : colors.border,
+                },
+              ]}
+            />
+          ))}
+        </View>
+      </View>
+    </AnimatedCard>
   )
 }
 
@@ -739,6 +837,10 @@ export default function RecommendationsScreen() {
               </TouchableOpacity>
             </View>
           </AnimatedCard>
+        ) : null}
+
+        {isLoading && recommendations.length === 0 && !isError ? (
+          <RecommendationsLoader />
         ) : null}
 
         {!isLoading && recommendations.length === 0 && !isError ? (
@@ -1388,26 +1490,28 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   },
   whyBox: {
     marginTop: Spacing.xs,
-    padding: Spacing.sm,
-    gap: 4,
-    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    gap: 8,
+    borderRadius: BorderRadius.lg,
     backgroundColor: colors.cardHover,
   },
-  whyLine: {
-    fontSize: FontSize.xs,
-    lineHeight: 16,
-    color: colors.foreground,
+  whyRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   whyLabel: {
+    fontSize: FontSize.xs,
     color: colors.mutedForeground,
   },
   whyValue: {
+    fontSize: FontSize.xs,
     color: colors.foreground,
     fontWeight: FontWeight.medium,
   },
   whyMuted: {
-    color: colors.mutedForeground,
     fontSize: FontSize.xs,
+    color: colors.mutedForeground,
   },
   disclaimerBox: {
     marginTop: Spacing.lg,
@@ -1426,5 +1530,86 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     fontSize: FontSize.xs,
     lineHeight: 16,
     color: colors.mutedForeground,
+  },
+
+  // ── Loader ─────────────────────────────────────────────────
+  loaderCard: {
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.lg,
+    backgroundColor: colors.card,
+    borderRadius: BorderRadius.xxl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+    paddingVertical: Spacing.xxxl,
+    paddingHorizontal: Spacing.lg,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 12,
+      },
+      android: { elevation: 2 },
+    }),
+  },
+  loaderContent: {
+    alignItems: 'center',
+    gap: Spacing.lg,
+  },
+  loaderGlow: {
+    position: 'absolute',
+    top: '30%',
+    left: '50%',
+    marginLeft: -80,
+    marginTop: -80,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    opacity: 0.12,
+  },
+  loaderIconWrap: {
+    position: 'relative',
+    width: 72,
+    height: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loaderRing: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    borderTopColor: colors.gold,
+    borderRightColor: `${colors.gold}40`,
+  },
+  loaderIconInner: {
+    width: 60,
+    height: 60,
+    borderRadius: BorderRadius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loaderLabel: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semibold,
+    color: colors.foreground,
+    textAlign: 'center',
+  },
+  loaderHint: {
+    fontSize: FontSize.xs,
+    color: colors.mutedForeground,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  loaderDotsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  loaderDot: {
+    height: 6,
+    borderRadius: 3,
   },
 })

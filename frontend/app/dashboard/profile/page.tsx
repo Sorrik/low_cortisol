@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   User, RefreshCw, Pencil, X, Check,
@@ -31,6 +32,7 @@ function getInitials(firstName: string, lastName: string) {
 // ── Page ──────────────────────────────────────────────────────
 
 export default function ProfilePage() {
+  const router = useRouter()
   const queryClient = useQueryClient()
 
   // ── Данные регистрации ────────────────────────────────────
@@ -492,7 +494,7 @@ export default function ProfilePage() {
               </p>
               <Button
                 variant="outline" size="sm"
-                onClick={() => window.location.href = "/onboarding"}
+                onClick={() => router.push("/onboarding")}
                 className="gap-2 text-xs"
               >
                 <Zap className="h-3.5 w-3.5" />

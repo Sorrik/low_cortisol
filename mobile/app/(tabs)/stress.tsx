@@ -24,6 +24,15 @@ import { useTheme } from '@/context/ThemeContext';
 
 import { getStressRecords, addStressRecord, updateStressRecord, deleteStressRecord } from '@/lib/health-api';
 import type { StressRecord } from '@/types/health';
+import {
+  AccentCard,
+  MetricHero,
+  StatCard,
+  StatRow,
+  TrendCard,
+  SectionHeader,
+  computeTrend,
+} from '@/components/dashboard/metric-page-atoms';
 
 const CHART_HEIGHT = 180;
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -408,81 +417,55 @@ export default function StressScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
-        {/* Header */}
-        <Animated.View style={[styles.header, { opacity: headerFade, transform: [{ translateY: headerTranslate }] }]}>
-          <View style={styles.headerLeft}>
-            <View style={[styles.iconWrapper, { backgroundColor: colors.stressMuted }]}>
-              <Ionicons name="pulse" size={26} color={colors.stress} />
-            </View>
-            <View>
-              <Text style={styles.title}>Стресс</Text>
-              <Text style={styles.subtitle}>Управление стрессом</Text>
-            </View>
-          </View>
-          <TouchableOpacity
-            style={[styles.addHeaderButton, { backgroundColor: colors.stress }]}
-            onPress={() => {
-              setEditRecord(null);
-              setModalVisible(true);
+        {/* Hero */}
+        <Animated.View style={{ opacity: headerFade, transform: [{ translateY: headerTranslate }] }}>
+          <MetricHero
+            icon="pulse"
+            title="Стресс"
+            color={colors.stress}
+            colorMuted={colors.stressMuted}
+            hasTodayRecord={!!todayStress}
+            subtitle={
+              todayStress
+                ? `Сегодня: ${todayStress}/10 — ${getStressLabel(todayStress)}`
+                : 'Запись за сегодня не добавлена'
+            }
+            onAction={() => {
+              setEditRecord(null)
+              setModalVisible(true)
             }}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="add" size={22} color="#fff" />
-          </TouchableOpacity>
+          />
         </Animated.View>
 
-        {/* Today card */}
-        <AnimatedCard index={cardIdx++} style={styles.todayCard}>
-          <Text style={styles.todayLabel}>Сегодня</Text>
-          {todayStress ? (
-            <View style={styles.todayContent}>
-              <View style={[styles.stressIndicator, { borderColor: getStressColor(todayStress) }]}>
-                <Text style={[styles.stressIndicatorValue, { color: getStressColor(todayStress) }]}>{todayStress}</Text>
-              </View>
-              <View style={styles.todayValueWrapper}>
-                <Text style={styles.todayValue}>{todayStress}/10</Text>
-                <Text style={[styles.todayStressLabel, { color: getStressColor(todayStress) }]}>{getStressLabel(todayStress)}</Text>
-              </View>
-            </View>
-          ) : (
-            <View style={styles.todayEmpty}>
-              <Ionicons name="pulse-outline" size={32} color={colors.mutedForeground} />
-              <Text style={styles.todayEmptyText}>Как ваш уровень стресса?</Text>
-              <TouchableOpacity
-                style={[styles.todayAddButton, { backgroundColor: colors.stressMuted }]}
-                onPress={() => {
-                  setEditRecord(null);
-                  setModalVisible(true);
-                }}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="add" size={16} color={colors.stress} />
-                <Text style={[styles.todayAddText, { color: colors.stress }]}>Добавить</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </AnimatedCard>
-
-        {/* Stats row */}
-        <View style={styles.statsRow}>
-          <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <View style={[styles.statIconBg, { backgroundColor: (avgStress ? getStressColor(avgStress) : colors.stress) + '15' }]}>
-              <Ionicons name="analytics" size={18} color={avgStress ? getStressColor(avgStress) : colors.stress} />
-            </View>
-            <Text style={styles.statValue}>{avgStress ?? '—'}/10</Text>
-            <Text style={styles.statLabel}>среднее за 7 дней</Text>
-          </AnimatedCard>
-          <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <View style={[styles.statIconBg, { backgroundColor: colors.primaryMuted }]}>
-              <Ionicons name="document-text" size={18} color={colors.primary} />
-            </View>
-            <Text style={styles.statValue}>{records.length}</Text>
-            <Text style={styles.statLabel}>записей</Text>
-          </AnimatedCard>
-        </View>
+        {/* Stats row — avg / trend(inverted) / max */}
+        {chartData.length > 0 && (() => {
+          const trend = computeTrend(chartData.map((d) => d.level))
+          const maxLvl = chartData.reduce((m, d) => Math.max(m, d.level), 0)
+          const avgLvl = avgStress ?? 0
+          return (
+            <AnimatedCard index={cardIdx++} style={{ marginTop: Spacing.md }}>
+              <StatRow>
+                <StatCard
+                  label={`Среднее за ${chartData.length} дн.`}
+                  value={`${avgLvl}/10`}
+                  hint={avgLvl ? `Цель: ≤4 · ${getStressLabel(avgLvl)}` : 'Нет данных'}
+                  accent={avgLvl ? getStressColor(avgLvl) : colors.stress}
+                />
+                <TrendCard trend={trend.dir} percent={trend.percent} inverted />
+                <StatCard
+                  label="Максимум"
+                  value={`${maxLvl}/10`}
+                  hint={getStressLabel(maxLvl)}
+                  accent={getStressColor(maxLvl)}
+                />
+              </StatRow>
+            </AnimatedCard>
+          )
+        })()}
 
         {/* Chart */}
-        <AnimatedCard index={cardIdx++} style={styles.chartCard}>
+        <AnimatedCard index={cardIdx++} style={{ marginTop: Spacing.md, marginBottom: Spacing.lg }}>
+          <AccentCard color={colors.stress} style={{ padding: Spacing.lg }}>
           <Text style={styles.cardTitle}>Стресс за 7 дней</Text>
           {chartData.length === 0 ? (
             <View style={styles.emptyChart}>
@@ -513,19 +496,23 @@ export default function StressScreen() {
               </Svg>
             </View>
           )}
+          </AccentCard>
         </AnimatedCard>
 
         {/* History */}
         <View style={styles.historySection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>История</Text>
-            {hasMoreRecords && (
-              <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
-                <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
-                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
-              </TouchableOpacity>
-            )}
-          </View>
+          <SectionHeader
+            title="История"
+            count={records.length}
+            trailing={
+              hasMoreRecords ? (
+                <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
+                  <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
+                  <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
+                </TouchableOpacity>
+              ) : null
+            }
+          />
 
           {records.length === 0 ? (
             <View style={styles.emptyHistory}>

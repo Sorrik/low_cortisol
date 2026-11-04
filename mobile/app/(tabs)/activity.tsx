@@ -25,6 +25,15 @@ import { useTheme } from '@/context/ThemeContext';
 import { getActivityRecords, addActivityRecord, updateActivityRecord, deleteActivityRecord } from '@/lib/health-api';
 import { usePedometer } from '@/hooks/usePedometer';
 import type { ActivityRecord } from '@/types/health';
+import {
+  AccentCard,
+  MetricHero,
+  StatCard,
+  StatRow,
+  TrendCard,
+  SectionHeader,
+  computeTrend,
+} from '@/components/dashboard/metric-page-atoms';
 
 const CHART_HEIGHT = 180;
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -479,94 +488,54 @@ export default function ActivityScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
-        {/* Header */}
-        <Animated.View style={[styles.header, { opacity: headerFade, transform: [{ translateY: headerTranslate }] }]}>
-          <View style={styles.headerLeft}>
-            <View style={styles.iconWrapper}>
-              <Ionicons name="flame" size={26} color={colors.activity} />
-            </View>
-            <View>
-              <Text style={styles.title}>Активность</Text>
-              <Text style={styles.subtitle}>Отслеживание тренировок</Text>
-            </View>
-          </View>
-          <TouchableOpacity
-            style={styles.addHeaderButton}
-            onPress={() => {
-              setEditRecord(null);
-              setModalVisible(true);
+        {/* Hero */}
+        <Animated.View style={{ opacity: headerFade, transform: [{ translateY: headerTranslate }] }}>
+          <MetricHero
+            icon="flame"
+            title="Активность"
+            color={colors.activity}
+            colorMuted={colors.activityMuted}
+            hasTodayRecord={todayRecord.length > 0}
+            subtitle={
+              todayRecord.length > 0
+                ? `Сегодня: ${todayDuration} мин · ${todayRecord.length} ${todayRecord.length === 1 ? 'тренировка' : 'тренировок'}${todaySteps > 0 ? ` · ${todaySteps.toLocaleString()} шагов` : ''}`
+                : 'Сегодня тренировок не было'
+            }
+            onAction={() => {
+              setEditRecord(null)
+              setModalVisible(true)
             }}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="add" size={22} color="#fff" />
-          </TouchableOpacity>
+            actionLabel="Добавить запись"
+          />
         </Animated.View>
 
-        {/* Today card */}
-        <AnimatedCard index={cardIdx++} style={styles.todayCard}>
-          <View style={styles.todayHeader}>
-            <Text style={styles.todayLabel}>Сегодня</Text>
-            <View style={styles.todayBadge}>
-              <Ionicons name="flash" size={12} color={colors.activity} />
-              <Text style={styles.todayBadgeText}>{todayRecord.length} активностей</Text>
-            </View>
-          </View>
-          {todayRecord.length > 0 ? (
-            <View style={styles.todayContent}>
-              <View style={styles.todayStat}>
-                <Text style={styles.todayValue}>{todayDuration}</Text>
-                <Text style={styles.todayUnit}>минут</Text>
-              </View>
-              {todaySteps > 0 && (
-                <View style={styles.todayStatDivider} />
-              )}
-              {todaySteps > 0 && (
-                <View style={styles.todayStat}>
-                  <Text style={styles.todayValue}>{todaySteps.toLocaleString()}</Text>
-                  <Text style={styles.todayUnit}>шагов</Text>
-                </View>
-              )}
-            </View>
-          ) : (
-            <View style={styles.todayEmpty}>
-              <Ionicons name="fitness-outline" size={32} color={colors.mutedForeground} />
-              <Text style={styles.todayEmptyText}>Нет активностей сегодня</Text>
-              <TouchableOpacity
-                style={styles.todayAddButton}
-                onPress={() => {
-                  setEditRecord(null);
-                  setModalVisible(true);
-                }}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="add" size={16} color={colors.activity} />
-                <Text style={styles.todayAddText}>Добавить</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </AnimatedCard>
-
-        {/* Stats row */}
-        <View style={styles.statsRow}>
-          <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <Ionicons name="time" size={20} color={colors.activity} />
-            <Text style={styles.statValue}>{weeklyTotal}м</Text>
-            <Text style={styles.statLabel}>за 7 дней</Text>
-          </AnimatedCard>
-          <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <Ionicons name="footsteps" size={20} color={colors.primary} />
-            <Text style={styles.statValue}>{weeklySteps.toLocaleString()}</Text>
-            <Text style={styles.statLabel}>шагов</Text>
-          </AnimatedCard>
-          <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <Ionicons name="calendar" size={20} color="#8b5cf6" />
-            <Text style={styles.statValue}>{records.length}</Text>
-            <Text style={styles.statLabel}>записей</Text>
-          </AnimatedCard>
-        </View>
+        {/* Stats row — total / trend / steps */}
+        {chartData.length > 0 && (() => {
+          const trend = computeTrend(chartData.map((d) => d.duration))
+          return (
+            <AnimatedCard index={cardIdx++} style={{ marginTop: Spacing.md }}>
+              <StatRow>
+                <StatCard
+                  label={`За ${chartData.length} дн.`}
+                  value={`${weeklyTotal} мин`}
+                  hint={`${records.length} ${records.length === 1 ? 'тренировка' : 'тренировок'}`}
+                  accent={colors.activity}
+                />
+                <TrendCard trend={trend.dir} percent={trend.percent} />
+                <StatCard
+                  label="Всего шагов"
+                  value={weeklySteps.toLocaleString()}
+                  hint={weeklySteps > 0 ? `${Math.round(weeklySteps / chartData.length).toLocaleString()} / день` : 'Не указаны'}
+                  accent={colors.water}
+                />
+              </StatRow>
+            </AnimatedCard>
+          )
+        })()}
 
         {/* Chart */}
-        <AnimatedCard index={cardIdx++} style={styles.chartCard}>
+        <AnimatedCard index={cardIdx++} style={{ marginTop: Spacing.md, marginBottom: Spacing.lg }}>
+          <AccentCard color={colors.activity} style={{ padding: Spacing.lg }}>
           <Text style={styles.cardTitle}>Активность за 7 дней</Text>
           {chartData.length === 0 ? (
             <View style={styles.emptyChart}>
@@ -597,19 +566,23 @@ export default function ActivityScreen() {
               </Svg>
             </View>
           )}
+          </AccentCard>
         </AnimatedCard>
 
         {/* History */}
         <View style={styles.historySection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>История</Text>
-            {hasMoreRecords && (
-              <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
-                <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
-                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
-              </TouchableOpacity>
-            )}
-          </View>
+          <SectionHeader
+            title="История"
+            count={records.length}
+            trailing={
+              hasMoreRecords ? (
+                <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
+                  <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
+                  <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
+                </TouchableOpacity>
+              ) : null
+            }
+          />
 
           {records.length === 0 ? (
             <View style={styles.emptyHistory}>
@@ -1103,9 +1076,9 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: 'rgba(163,230,53,0.08)',
+    backgroundColor: 'rgba(118,232,125,0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(163,230,53,0.25)',
+    borderColor: 'rgba(118,232,125,0.25)',
     borderRadius: 10,
     padding: 10,
     marginBottom: 12,
@@ -1116,7 +1089,7 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     color: colors.foreground,
   },
   pedometerApply: {
-    backgroundColor: 'rgba(163,230,53,0.2)',
+    backgroundColor: 'rgba(118,232,125,0.2)',
     borderRadius: 6,
     paddingHorizontal: 8,
     paddingVertical: 4,

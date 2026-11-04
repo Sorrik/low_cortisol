@@ -86,6 +86,8 @@ export interface HealthQueryContext {
   avgMood:            number
   avgActivityMinutes: number
   avgWaterGlasses:    number
+  avgCalories:        number
+  avgProteinGrams:    number
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -184,17 +186,37 @@ function lastNDays<T extends { date: string }>(records: T[], n: number): T[] {
 
 export function extractHealthContext(healthData: HealthData): HealthQueryContext {
   const W = 7
-  const sleep    = lastNDays(healthData.sleep,    W)
-  const stress   = lastNDays(healthData.stress,   W)
-  const mood     = lastNDays(healthData.mood,     W)
-  const activity = lastNDays(healthData.activity, W)
-  const water    = lastNDays(healthData.water,    W)
+  const sleep     = lastNDays(healthData.sleep,     W)
+  const stress    = lastNDays(healthData.stress,    W)
+  const mood      = lastNDays(healthData.mood,      W)
+  const activity  = lastNDays(healthData.activity,  W)
+  const water     = lastNDays(healthData.water,     W)
+  const nutrition = lastNDays(healthData.nutrition, W)
+
+  // Питание по дням — нужно RAG-сервису, чтобы определить нутрициональный
+  // дефицит (мало белка / низкая калорийность) и подобрать соответствующие
+  // статьи. Аггрегируем так же, как в _correctSeverities — суммой за день.
+  const byDay = new Map<string, { kcal: number; protein: number }>()
+  for (const r of nutrition) {
+    const day = (r.date ?? 'unknown').slice(0, 10)
+    const prev = byDay.get(day) ?? { kcal: 0, protein: 0 }
+    prev.kcal    += r.calories      ?? 0
+    prev.protein += r.protein_grams ?? 0
+    byDay.set(day, prev)
+  }
+  const dailyKcal    = [...byDay.values()].map(d => d.kcal).filter(v => v > 0)
+  const dailyProtein = [...byDay.values()].map(d => d.protein).filter(v => v > 0)
+  const avgKcal    = dailyKcal.length    ? dailyKcal.reduce((s, v) => s + v, 0)    / dailyKcal.length    : 0
+  const avgProtein = dailyProtein.length ? dailyProtein.reduce((s, v) => s + v, 0) / dailyProtein.length : 0
+
   return {
     avgSleepHours:      Math.round(avg(sleep.map(r => r.duration_hours)) * 10) / 10,
     avgStress:          Math.round(avg(stress.map(r => r.level))         * 10) / 10,
     avgMood:            Math.round(avg(mood.map(r => r.mood_score))      * 10) / 10,
     avgActivityMinutes: Math.round(avg(activity.map(r => r.duration_minutes))),
     avgWaterGlasses:    Math.round(avg(water.map(r => r.amount_ml / 250)) * 10) / 10,
+    avgCalories:        Math.round(avgKcal),
+    avgProteinGrams:    Math.round(avgProtein),
   }
 }
 
@@ -656,6 +678,76 @@ export function buildRecommendationPrompt(
     `   Низкий стресс (< 5/10) — это ХОРОШО, severity не может быть alert даже`,
     `   если тренд растёт. Заголовок «good» не должен звучать как упрёк.`,
     ``,
+    `5a. СОГЛАСОВАННОСТЬ ЗАГОЛОВКА, ТЕКСТА И SEVERITY — ЖЁСТКОЕ ПРАВИЛО.`,
+    `   title, description и severity ОБЯЗАНЫ передавать одинаковый сигнал —`,
+    `   нельзя смешивать позитив и предупреждение в одной карточке.`,
+    ``,
+    `   ╔══ ДЛЯ severity = "good" ══╗`,
+    `   title должен ясно и однозначно звучать позитивно — по нему одному`,
+    `   должно быть понятно, что всё хорошо. Не обязательно начинать с`,
+    `   фиксированного прилагательного («Отличный», «Хороший» и т.п.) —`,
+    `   это ОДИН из вариантов, а не шаблон на каждый раз. Можно опираться`,
+    `   на конкретный факт из data («8 дней подряд без сбоев», «7 из 7`,
+    `   вечеров с отбоем до полуночи»), если это точнее и живее общего слова.`,
+    ``,
+    `   ЗАПРЕЩЕНЫ в title для good ЛЮБЫЕ слова и их формы:`,
+    `     «ухудшается», «снижается», «падает», «ниже», «хуже», «слабее»,`,
+    `     «проблема», «риск», «беспокойство», «тревожно», «осторожно»,`,
+    `     «обрати внимание», «следи», «стоит улучшить», «надо», «нужно»,`,
+    `     «попробуй улучшить».`,
+    ``,
+    `   ЗАПРЕЩЕНЫ в description для good ЛЮБЫЕ обороты со смыслом «стало хуже»:`,
+    `     «ухудшение», «снижение», «спад», «недобор», «не дотягивает»,`,
+    `     «снизить», «исправить», «попробуй добавить», «попробуй улучшить»,`,
+    `     «стоит обратить внимание», «следует пересмотреть».`,
+    `   Это ЕДИНСТВЕННОЕ ограничение по лексике — «но», «однако», «следует»`,
+    `   и другие нейтральные слова НЕ запрещены сами по себе, если фраза`,
+    `   в целом звучит позитивно (например: «Сон стабилен, но что особенно`,
+    `   приятно — ты держишь его даже по выходным» — это ХОРОШО, не нарушение).`,
+    ``,
+    `   description для good = похвала, привязанная к конкретному факту.`,
+    `   НЕ пиши по жёсткому шаблону «<цифра>. <почему хорошо>. <фраза>» —`,
+    `   это на каждой карточке звучит как отчёт, а не как живая реакция.`,
+    `   Пиши так, как заботливый человек прокомментировал бы результат другу:`,
+    `   можно с лёгким юмором, риторическим вопросом, точечным эмодзи,`,
+    `   неожиданным углом («ты нашла ритм, в который многие месяцами`,
+    `   пытаются попасть» — а не «Уровень активности выше нормы»).`,
+    `   Опирайся на цифру, но не обязательно ставить её в начало предложения.`,
+    `   1–2 предложения, без канцелярита и штампов «продолжай в том же духе»`,
+    `   на КАЖДОЙ карточке — если он есть у одной, у соседних нужна другая`,
+    `   концовка.`,
+    ``,
+    `   description в good-карточке НЕ ДОЛЖЕН давать совет по другой метрике`,
+    `   (например, в карточке про настроение НЕЛЬЗЯ говорить про питание,`,
+    `   рацион, фрукты, овощи, воду, активность) — кроме случая, когда`,
+    `   приложена явная causal_chain с этой метрикой в outcome.`,
+    ``,
+    `   ПРИМЕРЫ.`,
+    `   Плохо (запрещено для good — переворачивает знак на негатив):`,
+    `     title: «Настроение ухудшается»`,
+    `     desc:  «Среднее настроение 8.4/10, что не дотягивает до обычного.`,
+    `             Попробуй добавить разнообразие в рацион…»`,
+    `   Плохо (формально разрешено, но звучит как отчёт — избегай):`,
+    `     desc:  «Среднее настроение 8.4/10 — устойчиво высокий уровень.`,
+    `             Продолжай в том же духе.»`,
+    `   Хорошо (живо, конкретно, без канцелярита):`,
+    `     title: «Ты держишь настроение стабильно высоким»`,
+    `     desc:  «8.4 из 10 — и это не случайность, а восьмой день подряд.`,
+    `             Похоже, ты нашла свой ритм.»`,
+    ``,
+    `   ╔══ ДЛЯ severity = "attention" / "alert" ══╗`,
+    `   - title называет проблему прямо: «Сон ниже нормы», «Стресс растёт».`,
+    `   - description содержит конкретное действие и цифру отклонения.`,
+    ``,
+    `5b. ЗАПРЕЩЁННЫЕ ТЕХНИЧЕСКИЕ ТЕРМИНЫ В description.`,
+    `   НЕ пиши пользователю внутренние термины системы. Запрещены формулировки:`,
+    `   «коэффициент …», «severity …», «индекс …», «процент отклонения …»,`,
+    `   «недобор по нормам N%», «личная норма по метрике X».`,
+    `   Числа должны быть в человеческих единицах: «~7 ч сна», «2200 мл воды»,`,
+    `   «35 мин активности», «8/10 настроение». Если хочешь сказать про отклонение —`,
+    `   опиши его словами: «чуть меньше обычного», «выше нормы», без процентов и`,
+    `   служебной лексики.`,
+    ``,
     `6. СОРТИРОВКА: alert → attention → good.`,
     ``,
     `7. ТОН: поддерживающий, без осуждения.`,
@@ -756,7 +848,7 @@ export function buildRecommendationPrompt(
   // Норма воды берётся из персонального профиля (30 мл/кг массы тела),
   // fallback 2000 мл если вес не задан.
   const waterTarget = up?.target_water_ml ?? 2000
-  parts.push(`  Среднее: ${stats.water.avg} стаканов/день (${Math.round(stats.water.avg * 250)} мл, твоя норма: ${waterTarget} мл)`)
+  parts.push(`  Среднее: ${Math.round(stats.water.avg * 250)} мл/день (твоя норма: ${waterTarget} мл)`)
   parts.push(``)
   parts.push(`Питание:`)
   parts.push(`  Калории: ${stats.calories.avg} ккал/день`)

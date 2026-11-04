@@ -156,13 +156,106 @@ export const submitRecommendationFeedback = (
 ): Promise<FeedbackResponse> =>
   api.post('/insights/feedback', payload).then(r => r.data)
 
+// ── Nutrition payload normalization ───────────────────────
+// Контракт бэкенда ждёт calories/proteinGrams/carbsGrams/fatGrams + time +
+// description(min 1). UI оперирует kcal/proteins/fats/carbs — маппим тут,
+// чтобы и ручной ввод, и поиск еды слали корректную форму.
+function nowTime(): string {
+  const d = new Date()
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function normalizeNutritionPayload(data: any): Record<string, any> {
+  const calories     = data.calories     ?? data.kcal
+  const proteinGrams = data.proteinGrams ?? data.proteins
+  const carbsGrams   = data.carbsGrams   ?? data.carbs
+  const fatGrams     = data.fatGrams     ?? data.fats
+  const description  = (data.description ?? data.mealName ?? '').toString().trim()
+
+  return {
+    ...(data.date     != null ? { date: data.date } : {}),
+    time:     (data.time as string | undefined)?.trim() || nowTime(),
+    mealType: data.mealType ?? 'snack',
+    description: description || '—',
+    ...(calories     != null ? { calories:     Math.round(calories) }            : {}),
+    ...(proteinGrams != null ? { proteinGrams: Math.round(proteinGrams * 10) / 10 } : {}),
+    ...(carbsGrams   != null ? { carbsGrams:   Math.round(carbsGrams   * 10) / 10 } : {}),
+    ...(fatGrams     != null ? { fatGrams:     Math.round(fatGrams     * 10) / 10 } : {}),
+  }
+}
+
 // ── POST ──────────────────────────────────────────────────
 export const createSleep     = (data: any) => api.post('/sleep',     data).then(r => r.data)
 export const createStress    = (data: any) => api.post('/stress',    data).then(r => r.data)
 export const createMood      = (data: any) => api.post('/mood',      data).then(r => r.data)
 export const createActivity  = (data: any) => api.post('/activity',  normalizeActivityPayload(data)).then(r => r.data)
 export const createWater     = (data: any) => api.post('/water',     data).then(r => r.data)
-export const createNutrition = (data: any) => api.post('/nutrition', data).then(r => r.data)
+export const createNutrition = (data: any) => api.post('/nutrition', normalizeNutritionPayload(data)).then(r => r.data)
+
+// ── Food search (бэкенд каскад: локальная БД → FatSecret → OpenFoodFacts RU/EN) ──
+export interface FoodMacros {
+  proteins: number
+  fats:     number
+  carbs:    number
+  kcal:     number
+}
+
+export interface FoodItem {
+  id:      string
+  name:    string
+  brand?:  string
+  per100g: FoodMacros
+}
+
+const foodSearchCache = new Map<string, FoodItem[]>()
+
+export async function searchFoods(query: string): Promise<FoodItem[]> {
+  const q = query.trim()
+  if (q.length < 2) return []
+
+  const cacheKey = q.toLowerCase()
+  const cached = foodSearchCache.get(cacheKey)
+  if (cached) return cached
+
+  let foods: Array<{
+    food_id: string
+    name:    string
+    brand?:  string
+    per100g: { kcal: number; protein: number; fat: number; carbs: number }
+  }> = []
+
+  try {
+    const res = await api.get(`/nutrition/food-search?q=${encodeURIComponent(q)}`, { timeout: 20_000 })
+    foods = res.data?.foods ?? []
+  } catch {
+    return []
+  }
+
+  const result: FoodItem[] = foods.map(f => ({
+    id:    f.food_id,
+    name:  f.name,
+    brand: f.brand,
+    per100g: {
+      kcal:     Math.round(f.per100g.kcal),
+      proteins: Math.round(f.per100g.protein * 10) / 10,
+      fats:     Math.round(f.per100g.fat     * 10) / 10,
+      carbs:    Math.round(f.per100g.carbs   * 10) / 10,
+    },
+  }))
+
+  foodSearchCache.set(cacheKey, result)
+  return result
+}
+
+export function calcMacros(per100g: FoodMacros, grams: number): FoodMacros {
+  const k = grams / 100
+  return {
+    proteins: Math.round(per100g.proteins * k * 10) / 10,
+    fats:     Math.round(per100g.fats     * k * 10) / 10,
+    carbs:    Math.round(per100g.carbs    * k * 10) / 10,
+    kcal:     Math.round(per100g.kcal     * k),
+  }
+}
 
 // ── Food vision (фото → gpt-4o → FatSecret) ───────────────
 export interface AnalyzedFoodItem {
@@ -242,7 +335,7 @@ export const updateStress    = (id: string, d: any) => api.patch(`/stress/${id}`
 export const updateMood      = (id: string, d: any) => api.patch(`/mood/${id}`,      d).then(r => r.data)
 export const updateActivity  = (id: string, d: any) => api.patch(`/activity/${id}`,  normalizeActivityPayload(d)).then(r => r.data)
 export const updateWater     = (id: string, d: any) => api.patch(`/water/${id}`,     d).then(r => r.data)
-export const updateNutrition = (id: string, d: any) => api.patch(`/nutrition/${id}`, d).then(r => r.data)
+export const updateNutrition = (id: string, d: any) => api.patch(`/nutrition/${id}`, normalizeNutritionPayload(d)).then(r => r.data)
 
 // ── Auth ──────────────────────────────────────────────────
 type AuthResponse = { access_token: string; refresh_token: string; user: { id: string } }

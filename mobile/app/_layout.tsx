@@ -17,7 +17,10 @@ function ThemedShell() {
 
   return (
     <>
-      <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.background} />
+      {/* backgroundColor убран из StatusBarProps в expo-status-bar (SDK 57) —
+          Android теперь всегда edge-to-edge, цвет статус-бара приложением
+          не задаётся. style по-прежнему управляет цветом иконок. */}
+      <StatusBar style={isDark ? 'light' : 'dark'} />
 
       {!isReady ? (
         <View style={{ flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }}>

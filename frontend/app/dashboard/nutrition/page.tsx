@@ -2,7 +2,8 @@
 
 import { useState } from "react"
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query"
-import { UtensilsCrossed, RefreshCw, Trash2 } from "lucide-react"
+import { toast } from "sonner"
+import { UtensilsCrossed, RefreshCw } from "lucide-react"
 import {
   Bar,
   BarChart,
@@ -20,6 +21,7 @@ import {
   BackToDashboard,
   ChartCard,
   CollapsibleHistory,
+  DeleteConfirmButton,
   EmptyChartState,
   MetricHero,
   RangeToggle,
@@ -94,7 +96,7 @@ export default function NutritionPage() {
       queryClient.invalidateQueries({ queryKey: ["insights"] })
       queryClient.invalidateQueries({ queryKey: ["fullStreak"] })
     },
-    onError: () => alert("Не удалось удалить запись"),
+    onError: () => toast.error("Не удалось удалить запись"),
   })
 
   const todayRecords = records.filter((r) => r.date.slice(0, 10) === todayDateStr)
@@ -113,7 +115,6 @@ export default function NutritionPage() {
     }
   }
   function handleDelete(row: NutritionRecord) {
-    if (!confirm("Удалить запись питания?")) return
     deleteMutation.mutate(row.id)
   }
 
@@ -327,9 +328,10 @@ function NutritionRow({
       </div>
 
       <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 sm:opacity-100">
-        <button onClick={() => onDelete(record)} aria-label="Удалить" className="flex h-8 w-8 items-center justify-center rounded-xl text-foreground/40 transition-colors hover:bg-rose-500/10 hover:text-rose-400">
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        <DeleteConfirmButton
+          title="Удалить запись питания?"
+          onConfirm={() => onDelete(record)}
+        />
       </div>
     </div>
   )

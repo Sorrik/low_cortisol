@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Animated } from 'react-native'
 import { Mic, Square } from 'lucide-react-native'
-import { Audio } from 'expo-av'
+import { useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from 'expo-audio'
 
 import { voiceToForm, type VoiceContext, type VoiceResponse } from '@/lib/health-api'
 
@@ -23,7 +23,7 @@ export function VoiceInputButton<T = Record<string, any>>({
   hint,
 }: Props<T>) {
   const [state, setState] = useState<'idle' | 'recording' | 'sending'>('idle')
-  const recordingRef = useRef<Audio.Recording | null>(null)
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY)
   const pulse = useRef(new Animated.Value(1)).current
 
   useEffect(() => {
@@ -43,39 +43,35 @@ export function VoiceInputButton<T = Record<string, any>>({
   const startRecording = useCallback(async () => {
     if (disabled || state !== 'idle') return
     try {
-      const perm = await Audio.requestPermissionsAsync()
+      const perm = await requestRecordingPermissionsAsync()
       if (perm.status !== 'granted') {
         Alert.alert('Нет доступа к микрофону', 'Разрешите доступ в настройках.')
         return
       }
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
       })
 
-      const rec = new Audio.Recording()
-      await rec.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY)
-      await rec.startAsync()
-      recordingRef.current = rec
+      await recorder.prepareToRecordAsync()
+      recorder.record()
       setState('recording')
     } catch (err) {
       console.error('recording start failed', err)
       Alert.alert('Ошибка', 'Не удалось начать запись')
       setState('idle')
     }
-  }, [disabled, state])
+  }, [disabled, state, recorder])
 
   const stopRecording = useCallback(async () => {
-    const rec = recordingRef.current
-    if (!rec || state !== 'recording') return
+    if (state !== 'recording') return
 
     setState('sending')
-    recordingRef.current = null
 
     try {
-      await rec.stopAndUnloadAsync()
-      const uri = rec.getURI()
+      await recorder.stop()
+      const uri = recorder.uri
       if (!uri) throw new Error('no uri')
 
       const result = await voiceToForm<any>(uri, context)
@@ -104,7 +100,7 @@ export function VoiceInputButton<T = Record<string, any>>({
     } finally {
       setState('idle')
     }
-  }, [context, onResult, state])
+  }, [context, onResult, state, recorder])
 
   const isBusy = state !== 'idle'
 
@@ -122,13 +118,13 @@ export function VoiceInputButton<T = Record<string, any>>({
         activeOpacity={0.85}
       >
         {state === 'sending' ? (
-          <ActivityIndicator color="#a3e635" />
+          <ActivityIndicator color="#76e87d" />
         ) : state === 'recording' ? (
           <Animated.View style={{ transform: [{ scale: pulse }] }}>
             <Square size={16} color="#ef4444" fill="#ef4444" />
           </Animated.View>
         ) : (
-          <Mic size={18} color="#a3e635" />
+          <Mic size={18} color="#76e87d" />
         )}
         <Text style={[styles.btnText, state === 'recording' && styles.btnTextRecording]}>
           {state === 'recording'
@@ -153,16 +149,16 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: 'rgba(163,230,53,0.1)',
+    backgroundColor: 'rgba(118,232,125,0.1)',
     borderWidth: 1,
-    borderColor: 'rgba(163,230,53,0.3)',
+    borderColor: 'rgba(118,232,125,0.3)',
   },
   btnRecording: {
     backgroundColor: 'rgba(239,68,68,0.15)',
     borderColor: 'rgba(239,68,68,0.5)',
   },
   btnDisabled: { opacity: 0.5 },
-  btnText: { fontSize: 14, fontWeight: '600', color: '#a3e635' },
+  btnText: { fontSize: 14, fontWeight: '600', color: '#76e87d' },
   btnTextRecording: { color: '#ef4444' },
   hint: { fontSize: 11, color: '#6b7280', marginTop: 6, textAlign: 'center' },
 })

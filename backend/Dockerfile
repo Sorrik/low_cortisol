@@ -2,7 +2,7 @@
 FROM node:22-alpine
 
 # Включаем pnpm (встроено в Node 22+)
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.14.0 --activate
 
 WORKDIR /app
 

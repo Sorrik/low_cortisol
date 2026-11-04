@@ -1,14 +1,16 @@
 // app/(modals)/_layout.tsx
 import { Stack } from 'expo-router'
+import { useTheme } from '@/context/ThemeContext'
 
 export default function ModalsLayout() {
+  const { colors } = useTheme()
   return (
     <Stack
       screenOptions={{
         presentation: 'modal',
         headerShown: false,
         animation: 'slide_from_bottom',
-        contentStyle: { backgroundColor: '#0f0f0f' },
+        contentStyle: { backgroundColor: colors.background },
       }}
     >
       <Stack.Screen name="add-sleep" />

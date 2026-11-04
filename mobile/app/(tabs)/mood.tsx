@@ -24,6 +24,15 @@ import { useTheme } from '@/context/ThemeContext';
 
 import { getMoodRecords, addMoodRecord, updateMoodRecord, deleteMoodRecord } from '@/lib/health-api';
 import type { MoodRecord } from '@/types/health';
+import {
+  AccentCard,
+  MetricHero,
+  StatCard,
+  StatRow,
+  TrendCard,
+  SectionHeader,
+  computeTrend,
+} from '@/components/dashboard/metric-page-atoms';
 
 const CHART_HEIGHT = 180;
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -416,75 +425,59 @@ export default function MoodScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
-        {/* Header */}
-        <Animated.View style={[styles.header, { opacity: headerFade, transform: [{ translateY: headerTranslate }] }]}>
-          <View style={styles.headerLeft}>
-            <View style={[styles.iconWrapper, { backgroundColor: colors.moodMuted }]}>
-              <Ionicons name="happy" size={26} color={colors.mood} />
-            </View>
-            <View>
-              <Text style={styles.title}>Настроение</Text>
-              <Text style={styles.subtitle}>Отслеживание эмоций</Text>
-            </View>
-          </View>
-          <TouchableOpacity
-            style={[styles.addHeaderButton, { backgroundColor: colors.mood }]}
-            onPress={() => {
-              setEditRecord(null);
-              setModalVisible(true);
+        {/* Hero card */}
+        <Animated.View style={{ opacity: headerFade, transform: [{ translateY: headerTranslate }] }}>
+          <MetricHero
+            icon="happy"
+            title="Настроение"
+            color={colors.mood}
+            colorMuted={colors.moodMuted}
+            hasTodayRecord={!!todayMood}
+            subtitle={
+              todayMood
+                ? `${getMoodEmoji(todayMood)}  Сегодня: ${todayMood}/10 — ${getMoodLabel(todayMood)}`
+                : 'Как ты себя чувствуешь сегодня?'
+            }
+            onAction={() => {
+              setEditRecord(null)
+              setModalVisible(true)
             }}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="add" size={22} color="#fff" />
-          </TouchableOpacity>
+          />
         </Animated.View>
 
-        {/* Today card */}
-        <AnimatedCard index={cardIdx++} style={styles.todayCard}>
-          <Text style={styles.todayLabel}>Сегодня</Text>
-          {todayMood ? (
-            <View style={styles.todayContent}>
-              <Text style={styles.todayEmoji}>{getMoodEmoji(todayMood)}</Text>
-              <View style={styles.todayValueWrapper}>
-                <Text style={styles.todayValue}>{todayMood}/10</Text>
-                <Text style={[styles.todayMoodLabel, { color: getMoodColor(todayMood) }]}>{getMoodLabel(todayMood)}</Text>
-              </View>
-            </View>
-          ) : (
-            <View style={styles.todayEmpty}>
-              <Ionicons name="happy-outline" size={32} color={colors.mutedForeground} />
-              <Text style={styles.todayEmptyText}>Как ваше настроение?</Text>
-              <TouchableOpacity
-                style={[styles.todayAddButton, { backgroundColor: colors.moodMuted }]}
-                onPress={() => {
-                  setEditRecord(null);
-                  setModalVisible(true);
-                }}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="add" size={16} color={colors.mood} />
-                <Text style={[styles.todayAddText, { color: colors.mood }]}>Добавить</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </AnimatedCard>
-
-        {/* Stats row */}
-        <View style={styles.statsRow}>
-          <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <Text style={styles.statEmoji}>{avgMood ? getMoodEmoji(avgMood) : '😐'}</Text>
-            <Text style={styles.statValue}>{avgMood ?? '—'}/10</Text>
-            <Text style={styles.statLabel}>среднее за 7 дней</Text>
-          </AnimatedCard>
-          <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <Ionicons name="document-text" size={20} color={colors.primary} />
-            <Text style={styles.statValue}>{records.length}</Text>
-            <Text style={styles.statLabel}>записей</Text>
-          </AnimatedCard>
-        </View>
+        {/* Stats row — avg / trend / best */}
+        {chartData.length > 0 && (() => {
+          const trend = computeTrend(chartData.map((d) => d.value))
+          const bestVal = chartData.reduce((m, d) => Math.max(m, d.value), 0)
+          return (
+            <AnimatedCard index={cardIdx++} style={{ marginTop: Spacing.md }}>
+              <StatRow>
+                <StatCard
+                  label={`Среднее за ${chartData.length} дн.`}
+                  value={
+                    <Text>
+                      <Text>{avgMood ? getMoodEmoji(avgMood) : '😐'}</Text>
+                      <Text>  {avgMood ?? '—'}</Text>
+                    </Text>
+                  }
+                  hint={avgMood ? getMoodLabel(avgMood) : 'Нет данных'}
+                  accent={colors.mood}
+                />
+                <TrendCard trend={trend.dir} percent={trend.percent} />
+                <StatCard
+                  label="Лучший день"
+                  value={`${bestVal}/10`}
+                  hint={getMoodLabel(bestVal)}
+                  accent={colors.success}
+                />
+              </StatRow>
+            </AnimatedCard>
+          )
+        })()}
 
         {/* Chart */}
-        <AnimatedCard index={cardIdx++} style={styles.chartCard}>
+        <AnimatedCard index={cardIdx++} style={{ marginTop: Spacing.md, marginBottom: Spacing.lg }}>
+          <AccentCard color={colors.mood} style={{ padding: Spacing.lg }}>
           <Text style={styles.cardTitle}>Настроение за 7 дней</Text>
           {chartData.length === 0 ? (
             <View style={styles.emptyChart}>
@@ -539,19 +532,23 @@ export default function MoodScreen() {
               </Svg>
             </View>
           )}
+          </AccentCard>
         </AnimatedCard>
 
         {/* History */}
         <View style={styles.historySection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>История</Text>
-            {hasMoreRecords && (
-              <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
-                <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
-                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
-              </TouchableOpacity>
-            )}
-          </View>
+          <SectionHeader
+            title="История"
+            count={records.length}
+            trailing={
+              hasMoreRecords ? (
+                <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
+                  <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
+                  <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
+                </TouchableOpacity>
+              ) : null
+            }
+          />
 
           {records.length === 0 ? (
             <View style={styles.emptyHistory}>

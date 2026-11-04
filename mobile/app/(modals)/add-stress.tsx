@@ -7,8 +7,11 @@ import {
 import { useRouter } from 'expo-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { X } from 'lucide-react-native'
+import * as Haptics from 'expo-haptics'
 import Slider from '@react-native-community/slider'
 import { createStress } from '@/lib/health-api'  // ← исправлено
+import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles'
+import { useTheme } from '@/context/ThemeContext'
 
 function todayStr(): string {
   const d = new Date()
@@ -23,6 +26,8 @@ function nowTime(): string {
 export default function AddStressModal() {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
 
   const [level, setLevel] = useState(5)
   const [notes, setNotes] = useState('')
@@ -35,19 +40,21 @@ export default function AddStressModal() {
       ...(notes.trim() ? { cause: notes.trim() } : {}),
     }),
     onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
       queryClient.invalidateQueries({ queryKey: ['stress'] })
       Alert.alert('✅ Успешно', 'Стресс сохранён')
       router.back()
     },
     onError: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
       Alert.alert('❌ Ошибка', 'Не удалось сохранить')
     },
   })
 
   function getStressColor(): string {
-    if (level <= 3) return '#22c55e'
-    if (level <= 6) return '#eab308'
-    return '#ef4444'
+    if (level <= 3) return colors.success
+    if (level <= 6) return colors.warning
+    return colors.destructive
   }
 
   return (
@@ -55,7 +62,7 @@ export default function AddStressModal() {
       <View style={styles.header}>
         <Text style={styles.title}>Добавить: Стресс</Text>
         <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
-          <X size={28} color="#9ca3af" />
+          <X size={28} color={colors.mutedForeground} />
         </TouchableOpacity>
       </View>
 
@@ -74,7 +81,7 @@ export default function AddStressModal() {
             value={level}
             onValueChange={setLevel}
             minimumTrackTintColor={getStressColor()}
-            maximumTrackTintColor="#27272a"
+            maximumTrackTintColor={colors.inputBorder}
             thumbTintColor={getStressColor()}
           />
           <View style={styles.sliderLabels}>
@@ -90,7 +97,7 @@ export default function AddStressModal() {
             value={notes}
             onChangeText={setNotes}
             placeholder="Работа, отношения, здоровье..."
-            placeholderTextColor="#6b7280"
+            placeholderTextColor={colors.mutedForeground}
             multiline
             numberOfLines={3}
             textAlignVertical="top"
@@ -114,7 +121,7 @@ export default function AddStressModal() {
           disabled={mutation.isPending}
         >
           {mutation.isPending
-            ? <ActivityIndicator color="#0a0a0a" />
+            ? <ActivityIndicator color={colors.primaryForeground} />
             : <Text style={styles.saveBtnText}>СОХРАНИТЬ</Text>
           }
         </TouchableOpacity>
@@ -123,26 +130,26 @@ export default function AddStressModal() {
   )
 }
 
-const styles = StyleSheet.create({
-  container:      { flex: 1, backgroundColor: '#0f0f0f' },
-  header:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#1f1f1f' },
-  title:          { fontSize: 20, fontWeight: '700', color: '#f5f5f5' },
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  container:      { flex: 1, backgroundColor: colors.background },
+  header:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
+  title:          { fontSize: 20, fontWeight: '700', color: colors.foreground },
   content:        { flex: 1, paddingHorizontal: 20, paddingTop: 24 },
   field:          { marginBottom: 24 },
-  label:          { fontSize: 15, fontWeight: '500', color: '#9ca3af', marginBottom: 8 },
-  input:          { backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#27272a', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 17, color: '#f5f5f5' },
+  label:          { fontSize: 15, fontWeight: '500', color: colors.mutedForeground, marginBottom: 8 },
+  input:          { backgroundColor: colors.input, borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 17, color: colors.foreground },
   textarea:       { minHeight: 110, paddingTop: 14 },
   levelIndicator: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', marginBottom: 8 },
   levelValue:     { fontSize: 48, fontWeight: '700' },
-  levelMax:       { fontSize: 24, color: '#6b7280', marginLeft: 4 },
+  levelMax:       { fontSize: 24, color: colors.mutedForeground, marginLeft: 4 },
   slider:         { width: '100%', height: 40 },
   sliderLabels:   { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
-  sliderLabel:    { fontSize: 12, color: '#6b7280' },
-  tipCard:        { backgroundColor: 'rgba(239,68,68,0.1)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.2)', borderRadius: 12, padding: 16 },
-  tipTitle:       { fontSize: 14, fontWeight: '600', color: '#ef4444', marginBottom: 8 },
-  tipText:        { fontSize: 13, color: '#9ca3af', lineHeight: 20 },
-  footer:         { padding: 20, borderTopWidth: 1, borderTopColor: '#1f1f1f' },
-  saveBtn:        { backgroundColor: '#a3e635', borderRadius: 12, paddingVertical: 18, alignItems: 'center' },
+  sliderLabel:    { fontSize: 12, color: colors.mutedForeground },
+  tipCard:        { backgroundColor: colors.destructiveMuted, borderWidth: 1, borderColor: colors.destructiveMuted, borderRadius: 12, padding: 16 },
+  tipTitle:       { fontSize: 14, fontWeight: '600', color: colors.destructive, marginBottom: 8 },
+  tipText:        { fontSize: 13, color: colors.mutedForeground, lineHeight: 20 },
+  footer:         { padding: 20, borderTopWidth: 1, borderTopColor: colors.border },
+  saveBtn:        { backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 18, alignItems: 'center' },
   saveBtnDisabled:{ opacity: 0.6 },
-  saveBtnText:    { fontSize: 16, fontWeight: '700', color: '#0a0a0a', letterSpacing: 0.5 },
+  saveBtnText:    { fontSize: 16, fontWeight: '700', color: colors.primaryForeground, letterSpacing: 0.5 },
 })

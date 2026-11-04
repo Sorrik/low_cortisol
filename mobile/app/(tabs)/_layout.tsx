@@ -5,17 +5,26 @@ import { FontSize } from '@/constants/theme';
 import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles';
 import { useTheme } from '@/context/ThemeContext';
 
-import { View, TouchableOpacity, StyleSheet, Platform, Animated } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Platform, Animated, type ColorValue } from 'react-native';
 import { useRef, useEffect } from 'react';
-import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
+import * as Haptics from 'expo-haptics';
 
 type IoniconsName = keyof typeof Ionicons.glyphMap;
 
 interface TabIconProps {
   name: IoniconsName;
-  color: string;
+  color: ColorValue;
   focused: boolean;
   size?: number;
+}
+
+// expo-router@57 больше не переэкспортирует @react-navigation/bottom-tabs
+// (пакет теперь vendored внутри expo-router и не имеет публичного пути
+// импорта типов) — берём только те поля BottomTabBarButtonProps, которые
+// реально используются.
+interface CenterTabButtonProps {
+  onPress?: (event: any) => void;
+  accessibilityState?: { selected?: boolean };
 }
 
 // Animated Tab Icon
@@ -45,7 +54,7 @@ function TabIcon({ name, color, focused, size = 22 }: TabIconProps) {
 }
 
 // Central Floating Button for Recommendations
-function CenterTabButton({ onPress, accessibilityState }: BottomTabBarButtonProps) {
+function CenterTabButton({ onPress, accessibilityState }: CenterTabButtonProps) {
   const styles = useThemedStyles(createStyles);
   const { colors } = useTheme();
   const focused = accessibilityState?.selected ?? false;
@@ -67,6 +76,7 @@ function CenterTabButton({ onPress, accessibilityState }: BottomTabBarButtonProp
   }, [focused]);
 
   const handlePressIn = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     Animated.spring(scaleAnim, { toValue: 0.9, friction: 5, useNativeDriver: true }).start();
   };
 

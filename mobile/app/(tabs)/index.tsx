@@ -10,6 +10,7 @@ import {
   Dimensions,
   Animated,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -26,14 +27,17 @@ import {
   getStressRecords,
   getActivityRecords,
   getWaterRecords,
+  getInsights,
 } from '@/lib/health-api';
 import { MetricCard } from '@/components/dashboard/MetricCard';
 import { StreakWidget } from '@/components/dashboard/StreakWidget';
 import { SleepSessionBanner } from '@/components/dashboard/SleepSessionBanner';
+import { AnomalyBanner } from '@/components/dashboard/AnomalyBanner';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_GAP = Spacing.md;
 const CARD_WIDTH = (SCREEN_WIDTH - Spacing.lg * 2 - CARD_GAP) / 2;
+const STEPS_GOAL = 8000;
 
 const metricRouteMap: Record<string, string> = {
   'Сон': '/(modals)/add-sleep',
@@ -138,47 +142,6 @@ function AnimatedCard({ children, index, style }: AnimatedCardProps) {
   );
 }
 
-// ── Animated Add Button ───────────────────────────────────────
-interface AnimatedAddButtonProps {
-  onPress: () => void;
-}
-
-function AnimatedAddButton({ onPress }: AnimatedAddButtonProps) {
-  const styles = useThemedStyles(createStyles);
-  const { colors } = useTheme();
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-
-  const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.85,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      friction: 3,
-      tension: 100,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
-      activeOpacity={1}
-      style={styles.addButtonTouchable}
-    >
-      <Animated.View style={[styles.addButton, { transform: [{ scale: scaleAnim }] }]}>
-        <Ionicons name="add" size={20} color="#fff" />
-      </Animated.View>
-    </TouchableOpacity>
-  );
-}
-
 // ── Component ─────────────────────────────────────────────────
 export default function DashboardScreen() {
   const styles = useThemedStyles(createStyles);
@@ -225,30 +188,38 @@ export default function DashboardScreen() {
   }
 
   // Queries
-  const { data: sleep = [] } = useQuery({
+  const { data: sleep = [], isLoading: sleepLoading, isError: sleepError } = useQuery({
     queryKey: ['sleep'],
     queryFn: getSleepRecords,
   });
-  const { data: nutrition = [] } = useQuery({
+  const { data: nutrition = [], isLoading: nutritionLoading, isError: nutritionError } = useQuery({
     queryKey: ['nutrition'],
     queryFn: getNutritionRecords,
   });
-  const { data: mood = [] } = useQuery({
+  const { data: mood = [], isLoading: moodLoading, isError: moodError } = useQuery({
     queryKey: ['mood'],
     queryFn: getMoodRecords,
   });
-  const { data: stress = [] } = useQuery({
+  const { data: stress = [], isLoading: stressLoading, isError: stressError } = useQuery({
     queryKey: ['stress'],
     queryFn: getStressRecords,
   });
-  const { data: activity = [] } = useQuery({
+  const { data: activity = [], isLoading: activityLoading, isError: activityError } = useQuery({
     queryKey: ['activity'],
     queryFn: getActivityRecords,
   });
-  const { data: water = [] } = useQuery({
+  const { data: water = [], isLoading: waterLoading, isError: waterError } = useQuery({
     queryKey: ['water'],
     queryFn: getWaterRecords,
   });
+  const { data: insights } = useQuery({
+    queryKey: ['insights'],
+    queryFn: getInsights,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const isLoading = sleepLoading || nutritionLoading || moodLoading || stressLoading || activityLoading || waterLoading;
+  const isError = sleepError || nutritionError || moodError || stressError || activityError || waterError;
 
   // Pull to refresh
   async function onRefresh() {
@@ -387,6 +358,10 @@ export default function DashboardScreen() {
       sparklineData: activitySparkline.map((d) => d.value),
       color: colors.activity,
       colorMuted: colors.activityMuted,
+      rings: dayActivity ? [
+        { progress: Math.min(100, (dayActivity.duration / 60) * 100), label: `${dayActivity.duration} мин` },
+        { progress: Math.min(100, (dayActivity.steps / STEPS_GOAL) * 100), label: `${dayActivity.steps.toLocaleString()} шагов` },
+      ] : undefined,
     },
     {
       title: 'Вода',
@@ -400,6 +375,39 @@ export default function DashboardScreen() {
       colorMuted: colors.waterMuted,
     },
   ];
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.centerState}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (isError) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.centerState}>
+          <Text style={styles.centerStateText}>Не удалось загрузить данные</Text>
+          <TouchableOpacity
+            style={styles.centerStateRetry}
+            onPress={() => {
+              queryClient.invalidateQueries({ queryKey: ['sleep'] });
+              queryClient.invalidateQueries({ queryKey: ['nutrition'] });
+              queryClient.invalidateQueries({ queryKey: ['mood'] });
+              queryClient.invalidateQueries({ queryKey: ['stress'] });
+              queryClient.invalidateQueries({ queryKey: ['activity'] });
+              queryClient.invalidateQueries({ queryKey: ['water'] });
+            }}
+          >
+            <Text style={styles.centerStateRetryText}>Повторить</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -421,9 +429,24 @@ export default function DashboardScreen() {
             },
           ]}
         >
-          <View>
-            <Text style={styles.title}>Обзор здоровья</Text>
+          <View style={styles.brandRow}>
+            <View style={styles.brandIconWrap}>
+              <Ionicons name="pulse" size={22} color={colors.foreground} />
+              <View style={styles.brandStatusDot} />
+            </View>
+            <View>
+              <Text style={styles.brandTitle}>LowCor</Text>
+              <Text style={styles.brandSubtitle}>Ваше здоровье под контролем</Text>
+            </View>
           </View>
+          <TouchableOpacity
+            style={styles.recsButton}
+            onPress={() => router.push('/(tabs)/recommendations' as any)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="sparkles" size={14} color={colors.gold} />
+            <Text style={styles.recsButtonText}>Советы</Text>
+          </TouchableOpacity>
         </Animated.View>
 
         {/* Date Navigator */}
@@ -453,9 +476,16 @@ export default function DashboardScreen() {
           >
             <Text style={styles.dateText}>{formatDisplayDate(selectedDate)}</Text>
             <View style={styles.dateInfo}>
-              <View style={styles.metricsBadge}>
-                <Text style={styles.metricsCount}>{filledMetrics}</Text>
-                <Text style={styles.metricsTotal}>/6</Text>
+              <View style={styles.dotsRow}>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.dot,
+                      { backgroundColor: i < filledMetrics ? colors.success : colors.border },
+                    ]}
+                  />
+                ))}
               </View>
               {!isToday && (
                 <View style={styles.todayBadge}>
@@ -483,6 +513,12 @@ export default function DashboardScreen() {
 
         <SleepSessionBanner />
 
+        {insights?.anomalyReport ? (
+          <View style={styles.anomalyWrapper}>
+            <AnomalyBanner report={insights.anomalyReport} />
+          </View>
+        ) : null}
+
         {/* Streak Widget */}
         <AnimatedCard index={0} style={styles.streakWrapper}>
           <StreakWidget />
@@ -500,22 +536,19 @@ export default function DashboardScreen() {
                 index % 2 === 0 ? { marginRight: CARD_GAP } : null,
               ]}
             >
-              <View style={styles.cardContainer}>
-                <MetricCard
-                  title={metric.title}
-                  value={metric.value}
-                  subtitle={metric.subtitle}
-                  icon={metric.icon}
-                  href={metric.href}
-                  progress={metric.progress}
-                  sparklineData={metric.sparklineData}
-                  color={metric.color}
-                  colorMuted={metric.colorMuted}
-                />
-                <AnimatedAddButton
-                  onPress={() => router.push(metricRouteMap[metric.title] as any)}
-                />
-              </View>
+              <MetricCard
+                title={metric.title}
+                value={metric.value}
+                subtitle={metric.subtitle}
+                icon={metric.icon}
+                href={metric.href}
+                progress={metric.progress}
+                sparklineData={metric.sparklineData}
+                color={metric.color}
+                colorMuted={metric.colorMuted}
+                rings={metric.rings}
+                onAdd={() => router.push(metricRouteMap[metric.title] as any)}
+              />
             </AnimatedCard>
           ))}
         </View>
@@ -538,46 +571,101 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,
   },
+  centerState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.xl,
+    gap: Spacing.md,
+  },
+  centerStateText: {
+    fontSize: FontSize.md,
+    color: colors.mutedForeground,
+    textAlign: 'center',
+  },
+  centerStateRetry: {
+    backgroundColor: colors.primary,
+    borderRadius: BorderRadius.lg,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.sm,
+  },
+  centerStateRetryText: {
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.semibold,
+    color: colors.primaryForeground,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: Spacing.lg,
     paddingTop: Spacing.sm,
+    gap: Spacing.md,
   },
-  greeting: {
-    fontSize: FontSize.sm,
-    color: colors.cardHover,
-    marginBottom: 4,
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    flex: 1,
   },
-  title: {
-    fontSize: FontSize.xxl,
+  brandIconWrap: {
+    position: 'relative',
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandStatusDot: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.success,
+    borderWidth: 2,
+    borderColor: colors.background,
+  },
+  brandTitle: {
+    fontSize: FontSize.xl,
     fontWeight: FontWeight.bold,
     color: colors.foreground,
     letterSpacing: -0.5,
   },
-  aiButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: colors.primary,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 8,
-      },
-    }),
+  brandSubtitle: {
+    fontSize: FontSize.xs,
+    color: colors.mutedForeground,
+    marginTop: 2,
   },
-  aiButtonInner: {
+  recsButton: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 10,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  recsButtonText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.medium,
+    color: colors.foreground,
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    gap: 5,
+    alignItems: 'center',
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   dateNav: {
     flexDirection: 'row',
@@ -633,23 +721,6 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  metricsBadge: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    backgroundColor: colors.primaryMuted,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  metricsCount: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.bold,
-    color: colors.foreground,
-  },
-  metricsTotal: {
-    fontSize: FontSize.xs,
-    color: colors.mutedForeground,
-  },
   todayBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -673,37 +744,10 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   metricsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    alignItems: 'flex-start',
     marginTop: Spacing.sm,
   },
   metricCardWrapper: {
     marginBottom: CARD_GAP,
-  },
-  cardContainer: {
-    position: 'relative',
-  },
-  addButtonTouchable: {
-    position: 'absolute',
-    top: 12,
-    right: 9,
-    zIndex: 10,
-  },
-  addButton: {
-    backgroundColor: colors.primary,
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: colors.primary,
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.3,
-        shadowRadius: 6,
-      },
-      android: {
-        elevation: 6,
-      },
-    }),
   },
 });

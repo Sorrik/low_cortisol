@@ -586,7 +586,14 @@ function SourcesSection({ sources }: { sources: ArticleSource[] }) {
                 <span>PMID {source.pmid}</span>
                 {source.year && <span>{source.year}</span>}
               </div>
-              <p className="line-clamp-2 text-xs font-medium leading-relaxed text-foreground/70">{source.title}</p>
+              <p className="line-clamp-2 text-xs font-medium leading-relaxed text-foreground/70">
+                {source.titleRu || source.title}
+              </p>
+              {source.titleRu && source.titleRu !== source.title ? (
+                <p className="mt-1 line-clamp-1 text-[10px] italic leading-relaxed text-foreground/35">
+                  {source.title}
+                </p>
+              ) : null}
             </div>
             <ExternalLink className="mt-1 h-3.5 w-3.5 shrink-0 text-foreground/30" />
           </a>

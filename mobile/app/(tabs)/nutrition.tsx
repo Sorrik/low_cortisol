@@ -23,6 +23,16 @@ import { useTheme } from '@/context/ThemeContext';
 
 import { getNutritionRecords, addNutritionRecord, updateNutritionRecord, deleteNutritionRecord } from '@/lib/health-api';
 import type { NutritionRecord } from '@/types/health';
+import {
+  AccentCard,
+  MetricHero,
+  StatCard,
+  StatRow,
+  TrendCard,
+  SectionHeader,
+  computeTrend,
+} from '@/components/dashboard/metric-page-atoms';
+import { FoodSearchInput, MealEntry, sumMacros } from '@/components/nutrition/FoodSearchInput';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const COLLAPSED_ITEMS = 3;
@@ -248,13 +258,18 @@ function NutritionModal({
   const [fats, setFats] = useState('');
   const [carbs, setCarbs] = useState('');
   const [description, setDescription] = useState('');
+  const [inputMode, setInputMode] = useState<'search' | 'manual'>('search');
+  const [mealEntries, setMealEntries] = useState<MealEntry[]>([]);
 
   const slideAnim = useRef(new Animated.Value(500)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
+      setMealEntries([]);
       if (editRecord) {
+        // У существующей записи нет разбивки по продуктам — редактируем вручную
+        setInputMode('manual');
         setDate(editRecord.date.slice(0, 10));
         setMealType(editRecord.mealType ?? 'lunch');
         setKcal(String(editRecord.kcal));
@@ -263,6 +278,7 @@ function NutritionModal({
         setCarbs(String(editRecord.carbs));
         setDescription(editRecord.description ?? '');
       } else {
+        setInputMode('search');
         setDate(toLocalDateStr(new Date()));
         setMealType('lunch');
         setKcal('');
@@ -284,6 +300,21 @@ function NutritionModal({
   }, [visible, editRecord]);
 
   const handleSave = () => {
+    if (inputMode === 'search' && mealEntries.length > 0) {
+      const totals = sumMacros(mealEntries);
+      const summary = mealEntries.map((e) => `${e.food.name} (${e.grams}г)`).join(', ');
+      const note = description.trim();
+      onSave({
+        date,
+        mealType,
+        kcal: totals.kcal,
+        proteins: totals.proteins,
+        fats: totals.fats,
+        carbs: totals.carbs,
+        description: note ? `${summary}. ${note}` : summary,
+      });
+      return;
+    }
     onSave({
       date,
       mealType,
@@ -294,6 +325,10 @@ function NutritionModal({
       description: description || undefined,
     });
   };
+
+  const canSave = inputMode === 'search'
+    ? mealEntries.length > 0
+    : (parseInt(kcal) || 0) > 0;
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
@@ -326,83 +361,132 @@ function NutritionModal({
                 <MealTypeSelector value={mealType} onChange={setMealType} />
               </View>
 
-              {/* Description */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Описание (опционально)</Text>
-                <View style={styles.inputWrapper}>
-                  <Ionicons name="document-text" size={18} color={colors.mutedForeground} />
-                  <TextInput
-                    style={styles.input}
-                    value={description}
-                    onChangeText={setDescription}
-                    placeholder="Овсянка с ягодами..."
-                    placeholderTextColor={colors.mutedForeground}
-                  />
+              {/* Mode toggle — поиск продукта или ручной ввод (только для новой записи) */}
+              {!editRecord && (
+                <View style={styles.modeToggle}>
+                  <TouchableOpacity
+                    style={[styles.modeToggleItem, inputMode === 'search' && styles.modeToggleItemActive]}
+                    onPress={() => setInputMode('search')}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="search" size={16} color={inputMode === 'search' ? colors.nutrition : colors.mutedForeground} />
+                    <Text style={[styles.modeToggleText, inputMode === 'search' && styles.modeToggleTextActive]}>Поиск продукта</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modeToggleItem, inputMode === 'manual' && styles.modeToggleItemActive]}
+                    onPress={() => setInputMode('manual')}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="create-outline" size={16} color={inputMode === 'manual' ? colors.nutrition : colors.mutedForeground} />
+                    <Text style={[styles.modeToggleText, inputMode === 'manual' && styles.modeToggleTextActive]}>Вручную</Text>
+                  </TouchableOpacity>
                 </View>
-              </View>
+              )}
 
-              {/* Calories */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Калории</Text>
-                <View style={styles.inputWrapper}>
-                  <Ionicons name="flame" size={18} color={colors.nutrition} />
-                  <TextInput
-                    style={styles.input}
-                    value={kcal}
-                    onChangeText={setKcal}
-                    placeholder="0"
-                    keyboardType="numeric"
-                    placeholderTextColor={colors.mutedForeground}
-                  />
-                  <Text style={styles.inputSuffix}>ккал</Text>
-                </View>
-              </View>
+              {inputMode === 'search' ? (
+                <>
+                  {/* Food search */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Продукты</Text>
+                    <FoodSearchInput entries={mealEntries} onChange={setMealEntries} />
+                  </View>
 
-              {/* Macros */}
-              <View style={styles.macrosInputRow}>
-                <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.inputLabel}>Белки</Text>
-                  <View style={[styles.inputWrapper, styles.inputWrapperCompact]}>
-                    <TextInput
-                      style={styles.input}
-                      value={proteins}
-                      onChangeText={setProteins}
-                      placeholder="0"
-                      keyboardType="numeric"
-                      placeholderTextColor={colors.mutedForeground}
-                    />
-                    <Text style={styles.inputSuffix}>г</Text>
+                  {/* Optional note */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Заметка (опционально)</Text>
+                    <View style={styles.inputWrapper}>
+                      <Ionicons name="document-text" size={18} color={colors.mutedForeground} />
+                      <TextInput
+                        style={styles.input}
+                        value={description}
+                        onChangeText={setDescription}
+                        placeholder="Самочувствие после еды..."
+                        placeholderTextColor={colors.mutedForeground}
+                      />
+                    </View>
                   </View>
-                </View>
-                <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.inputLabel}>Жиры</Text>
-                  <View style={[styles.inputWrapper, styles.inputWrapperCompact]}>
-                    <TextInput
-                      style={styles.input}
-                      value={fats}
-                      onChangeText={setFats}
-                      placeholder="0"
-                      keyboardType="numeric"
-                      placeholderTextColor={colors.mutedForeground}
-                    />
-                    <Text style={styles.inputSuffix}>г</Text>
+                </>
+              ) : (
+                <>
+                  {/* Description */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Описание (опционально)</Text>
+                    <View style={styles.inputWrapper}>
+                      <Ionicons name="document-text" size={18} color={colors.mutedForeground} />
+                      <TextInput
+                        style={styles.input}
+                        value={description}
+                        onChangeText={setDescription}
+                        placeholder="Овсянка с ягодами..."
+                        placeholderTextColor={colors.mutedForeground}
+                      />
+                    </View>
                   </View>
-                </View>
-                <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.inputLabel}>Углеводы</Text>
-                  <View style={[styles.inputWrapper, styles.inputWrapperCompact]}>
-                    <TextInput
-                      style={styles.input}
-                      value={carbs}
-                      onChangeText={setCarbs}
-                      placeholder="0"
-                      keyboardType="numeric"
-                      placeholderTextColor={colors.mutedForeground}
-                    />
-                    <Text style={styles.inputSuffix}>г</Text>
+
+                  {/* Calories */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Калории</Text>
+                    <View style={styles.inputWrapper}>
+                      <Ionicons name="flame" size={18} color={colors.nutrition} />
+                      <TextInput
+                        style={styles.input}
+                        value={kcal}
+                        onChangeText={setKcal}
+                        placeholder="0"
+                        keyboardType="numeric"
+                        placeholderTextColor={colors.mutedForeground}
+                      />
+                      <Text style={styles.inputSuffix}>ккал</Text>
+                    </View>
                   </View>
-                </View>
-              </View>
+
+                  {/* Macros */}
+                  <View style={styles.macrosInputRow}>
+                    <View style={[styles.inputGroup, { flex: 1 }]}>
+                      <Text style={styles.inputLabel}>Белки</Text>
+                      <View style={[styles.inputWrapper, styles.inputWrapperCompact]}>
+                        <TextInput
+                          style={styles.input}
+                          value={proteins}
+                          onChangeText={setProteins}
+                          placeholder="0"
+                          keyboardType="numeric"
+                          placeholderTextColor={colors.mutedForeground}
+                        />
+                        <Text style={styles.inputSuffix}>г</Text>
+                      </View>
+                    </View>
+                    <View style={[styles.inputGroup, { flex: 1 }]}>
+                      <Text style={styles.inputLabel}>Жиры</Text>
+                      <View style={[styles.inputWrapper, styles.inputWrapperCompact]}>
+                        <TextInput
+                          style={styles.input}
+                          value={fats}
+                          onChangeText={setFats}
+                          placeholder="0"
+                          keyboardType="numeric"
+                          placeholderTextColor={colors.mutedForeground}
+                        />
+                        <Text style={styles.inputSuffix}>г</Text>
+                      </View>
+                    </View>
+                    <View style={[styles.inputGroup, { flex: 1 }]}>
+                      <Text style={styles.inputLabel}>Углеводы</Text>
+                      <View style={[styles.inputWrapper, styles.inputWrapperCompact]}>
+                        <TextInput
+                          style={styles.input}
+                          value={carbs}
+                          onChangeText={setCarbs}
+                          placeholder="0"
+                          keyboardType="numeric"
+                          placeholderTextColor={colors.mutedForeground}
+                        />
+                        <Text style={styles.inputSuffix}>г</Text>
+                      </View>
+                    </View>
+                  </View>
+                </>
+              )}
             </ScrollView>
 
             {/* Actions */}
@@ -411,9 +495,9 @@ function NutritionModal({
                 <Text style={styles.cancelButtonText}>Отмена</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.saveButton, isLoading && styles.saveButtonDisabled]}
+                style={[styles.saveButton, (isLoading || !canSave) && styles.saveButtonDisabled]}
                 onPress={handleSave}
-                disabled={isLoading}
+                disabled={isLoading || !canSave}
                 activeOpacity={0.8}
               >
                 {isLoading ? (
@@ -572,51 +656,31 @@ export default function NutritionScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
-        {/* Header */}
-        <Animated.View style={[styles.header, { opacity: headerFade, transform: [{ translateY: headerTranslate }] }]}>
-          <View style={styles.headerLeft}>
-            <View style={styles.iconWrapper}>
-              <Ionicons name="restaurant" size={26} color={colors.nutrition} />
-            </View>
-            <View>
-              <Text style={styles.title}>Питание</Text>
-              <Text style={styles.subtitle}>Калории и БЖУ</Text>
-            </View>
-          </View>
-          <TouchableOpacity
-            style={styles.addHeaderButton}
-            onPress={() => {
-              setEditRecord(null);
-              setModalVisible(true);
+        {/* Hero */}
+        <Animated.View style={{ opacity: headerFade, transform: [{ translateY: headerTranslate }] }}>
+          <MetricHero
+            icon="restaurant"
+            title="Питание"
+            color={colors.nutrition}
+            colorMuted={colors.nutritionMuted}
+            hasTodayRecord={todayData.records.length > 0}
+            subtitle={
+              todayData.records.length > 0
+                ? `Сегодня: ${todayData.kcal} ккал · ${todayData.records.length} ${todayData.records.length === 1 ? 'приём' : 'приёмов'}`
+                : 'Сегодня записи питания не добавлены'
+            }
+            onAction={() => {
+              setEditRecord(null)
+              setModalVisible(true)
             }}
-            activeOpacity={0.8}
+            actionLabel="Добавить запись"
           >
-            <Ionicons name="add" size={22} color="#fff" />
-          </TouchableOpacity>
+            <View style={styles.calorieGoal}>
+              <ProgressBar progress={(todayData.kcal / goals.kcal) * 100} color={colors.nutrition} height={8} />
+              <Text style={styles.calorieGoalText}>{todayData.kcal} из {goals.kcal} ккал</Text>
+            </View>
+          </MetricHero>
         </Animated.View>
-
-        {/* Today's Calories Card */}
-        <AnimatedCard index={cardIdx++} style={styles.calorieCard}>
-          <View style={styles.calorieContent}>
-            <View style={styles.calorieLeft}>
-              <Text style={styles.calorieLabel}>Сегодня</Text>
-              <View style={styles.calorieValueRow}>
-                <Text style={styles.calorieValue}>{todayData.kcal}</Text>
-                <Text style={styles.calorieUnit}>ккал</Text>
-              </View>
-              <View style={styles.calorieGoal}>
-                <ProgressBar progress={(todayData.kcal / goals.kcal) * 100} color={colors.nutrition} height={8} />
-                <Text style={styles.calorieGoalText}>из {goals.kcal} ккал</Text>
-              </View>
-            </View>
-            <View style={styles.calorieRight}>
-              <View style={styles.mealsCountBadge}>
-                <Text style={styles.mealsCountValue}>{todayData.records.length}</Text>
-                <Text style={styles.mealsCountLabel}>приемов</Text>
-              </View>
-            </View>
-          </View>
-        </AnimatedCard>
 
         {/* Macros */}
         <View style={styles.macrosRow}>
@@ -715,15 +779,18 @@ export default function NutritionScreen() {
 
         {/* History */}
         <View style={styles.historySection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Вся история</Text>
-            {hasMoreRecords && (
-              <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
-                <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
-                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
-              </TouchableOpacity>
-            )}
-          </View>
+          <SectionHeader
+            title="Вся история"
+            count={records.length}
+            trailing={
+              hasMoreRecords ? (
+                <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
+                  <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
+                  <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
+                </TouchableOpacity>
+              ) : null
+            }
+          />
 
           {records.length === 0 ? (
             <View style={styles.emptyHistory}>
@@ -1287,6 +1354,35 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
   macrosInputRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
+  },
+  modeToggle: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  modeToggleItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: colors.secondary,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  modeToggleItemActive: {
+    backgroundColor: colors.nutritionMuted,
+    borderColor: colors.nutrition,
+  },
+  modeToggleText: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.medium,
+    color: colors.mutedForeground,
+  },
+  modeToggleTextActive: {
+    color: colors.nutrition,
   },
   modalActions: {
     flexDirection: 'row',

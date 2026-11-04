@@ -162,11 +162,12 @@ export interface RuleRecommendation {
 // ── Article Source — объявляем ДО InsightsResponse ───────────
 
 export interface ArticleSource {
-  index: number
-  pmid:  string
-  title: string
-  year:  string
-  url:   string
+  index:    number
+  pmid:     string
+  title:    string
+  titleRu?: string
+  year:     string
+  url:      string
 }
 
 // ── ML Insights ───────────────────────────────────────────────

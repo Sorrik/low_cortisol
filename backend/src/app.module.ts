@@ -103,7 +103,7 @@ import { AiModule } from './ai/ai.module'
         StressData,
       ],
       migrations: [__dirname + '/migrations/*{.ts,.js}'],
-      migrationsRun: true,
+      migrationsRun: false, // TEMP (локальная проверка): миграции рассчитаны на промежуточную схему, конфликтуют с synchronize. Вернуть true при обычной работе без TYPEORM_SYNC.
       synchronize: process.env.TYPEORM_SYNC === 'true',
       autoLoadEntities: true,
     }),

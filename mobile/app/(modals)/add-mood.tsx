@@ -7,7 +7,10 @@ import {
 import { useRouter } from 'expo-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { X } from 'lucide-react-native'
+import * as Haptics from 'expo-haptics'
 import { createMood } from '@/lib/health-api'
+import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles'
+import { useTheme } from '@/context/ThemeContext'
 
 function todayStr(): string {
   const d = new Date()
@@ -35,6 +38,8 @@ const MOOD_OPTIONS: { value: number; emoji: string; label: string }[] = [
 export default function AddMoodModal() {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
 
   const [moodValue, setMoodValue] = useState(3)
   const [notes, setNotes] = useState('')
@@ -47,11 +52,13 @@ export default function AddMoodModal() {
       notes:     notes.trim() || '',
     }),
     onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
       queryClient.invalidateQueries({ queryKey: ['mood'] })
       Alert.alert('✅ Успешно', 'Настроение сохранено')
       router.back()
     },
     onError: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
       Alert.alert('❌ Ошибка', 'Не удалось сохранить')
     },
   })
@@ -61,7 +68,7 @@ export default function AddMoodModal() {
       <View style={styles.header}>
         <Text style={styles.title}>Добавить: Настроение</Text>
         <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
-          <X size={28} color="#9ca3af" />
+          <X size={28} color={colors.mutedForeground} />
         </TouchableOpacity>
       </View>
 
@@ -91,7 +98,7 @@ export default function AddMoodModal() {
             value={notes}
             onChangeText={setNotes}
             placeholder="Что повлияло на настроение..."
-            placeholderTextColor="#6b7280"
+            placeholderTextColor={colors.mutedForeground}
             multiline
             numberOfLines={3}
             textAlignVertical="top"
@@ -106,7 +113,7 @@ export default function AddMoodModal() {
           disabled={mutation.isPending}
         >
           {mutation.isPending
-            ? <ActivityIndicator color="#0a0a0a" />
+            ? <ActivityIndicator color={colors.primaryForeground} />
             : <Text style={styles.saveBtnText}>СОХРАНИТЬ</Text>
           }
         </TouchableOpacity>
@@ -115,23 +122,23 @@ export default function AddMoodModal() {
   )
 }
 
-const styles = StyleSheet.create({
-  container:       { flex: 1, backgroundColor: '#0f0f0f' },
-  header:          { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#1f1f1f' },
-  title:           { fontSize: 20, fontWeight: '700', color: '#f5f5f5' },
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  container:       { flex: 1, backgroundColor: colors.background },
+  header:          { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
+  title:           { fontSize: 20, fontWeight: '700', color: colors.foreground },
   content:         { flex: 1, paddingHorizontal: 20, paddingTop: 24 },
   field:           { marginBottom: 24 },
-  label:           { fontSize: 15, fontWeight: '500', color: '#9ca3af', marginBottom: 12 },
-  input:           { backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#27272a', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 17, color: '#f5f5f5' },
+  label:           { fontSize: 15, fontWeight: '500', color: colors.mutedForeground, marginBottom: 12 },
+  input:           { backgroundColor: colors.input, borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 17, color: colors.foreground },
   textarea:        { minHeight: 110, paddingTop: 14 },
   moodPicker:      { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
-  moodOption:      { flex: 1, alignItems: 'center', paddingVertical: 12, paddingHorizontal: 4, backgroundColor: '#1a1a1a', borderRadius: 12, borderWidth: 2, borderColor: '#27272a' },
-  moodOptionActive:{ borderColor: '#a3e635', backgroundColor: 'rgba(163,230,53,0.1)' },
+  moodOption:      { flex: 1, alignItems: 'center', paddingVertical: 12, paddingHorizontal: 4, backgroundColor: colors.input, borderRadius: 12, borderWidth: 2, borderColor: colors.inputBorder },
+  moodOptionActive:{ borderColor: colors.primary, backgroundColor: colors.primaryMuted },
   moodEmoji:       { fontSize: 28, marginBottom: 4 },
-  moodLabel:       { fontSize: 10, color: '#6b7280', textAlign: 'center' },
-  moodLabelActive: { color: '#a3e635', fontWeight: '600' },
-  footer:          { padding: 20, borderTopWidth: 1, borderTopColor: '#1f1f1f' },
-  saveBtn:         { backgroundColor: '#a3e635', borderRadius: 12, paddingVertical: 18, alignItems: 'center' },
+  moodLabel:       { fontSize: 10, color: colors.mutedForeground, textAlign: 'center' },
+  moodLabelActive: { color: colors.primary, fontWeight: '600' },
+  footer:          { padding: 20, borderTopWidth: 1, borderTopColor: colors.border },
+  saveBtn:         { backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 18, alignItems: 'center' },
   saveBtnDisabled: { opacity: 0.6 },
-  saveBtnText:     { fontSize: 16, fontWeight: '700', color: '#0a0a0a', letterSpacing: 0.5 },
+  saveBtnText:     { fontSize: 16, fontWeight: '700', color: colors.primaryForeground, letterSpacing: 0.5 },
 })

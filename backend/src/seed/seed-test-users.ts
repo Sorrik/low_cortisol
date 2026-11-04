@@ -1,7 +1,7 @@
 /**
  * backend/src/seed/seed-test-users.ts
  *
- * Создаёт 5 «настоящих» пользователей с 14 днями данных. Каждый персонаж —
+ * Создаёт 10 «настоящих» пользователей с 14 днями данных. Каждый персонаж —
  * реалистичный кейс с дневной вариативностью (вход/выход из паттерна,
  * выходные vs будни), но с устойчивым уклоном, который CausalChainService
  * и ML должны заметить.
@@ -25,6 +25,20 @@
  *                           тренировки, перетрен. Ожидаем: B1, B2, D2.
  *   5. dima@test.local    — Дима, 22, студент. Хаос в графике, дефицит
  *                           белка. Ожидаем: A4, C2, C3.
+ *   6. nastya@test.local  — Настя, 26, HR-менеджер. Обычная сбалансированная
+ *                           жизнь без экстремальных паттернов. Без пропусков.
+ *   7. pavel@test.local   — Павел, 45, бухгалтер. Сидячий образ жизни,
+ *                           обычное некрасивое, но не катастрофичное питание.
+ *                           Пропуск: 3 дня подряд (командировка).
+ *   8. lena@test.local    — Лена, 30, фрилансер-дизайнер. Плавающий график,
+ *                           умеренный стресс. Пропуски: 3 разрозненных дня
+ *                           (забыла записать).
+ *   9. viktor@test.local  — Виктор, 50, таксист. Ночные смены через день,
+ *                           хронический недосып и перекусы в дороге.
+ *                           Пропуск: 2 дня подряд (болел).
+ *  10. katya@test.local   — Катя, 19, первокурсница. В целом нормальная
+ *                           студенческая жизнь, лёгкая нерегулярность без
+ *                           хаоса. Без пропусков.
  * ═══════════════════════════════════════════════════════════════
  */
 
@@ -202,8 +216,12 @@ interface PersonaDef {
     sportTypes:     string[]
     sportGoal:      'lose_weight' | 'build_muscle' | 'improve_endurance' | 'stay_healthy' | 'reduce_stress' | null
   }
-  /** Генерирует один день. dayIndex=0 — вчера, 13 — 14 дней назад. */
-  generateDay: (dayIndex: number, dateStr: string) => DayData
+  /**
+   * Генерирует один день. dayIndex=0 — вчера, 13 — 14 дней назад.
+   * Возврат null означает «пользователь в этот день ничего не записал» —
+   * ни одной записи ни в одной таблице (реалистичный пропуск трекинга).
+   */
+  generateDay: (dayIndex: number, dateStr: string) => DayData | null
 }
 
 // ── Sleep helpers ─────────────────────────────────────────────
@@ -572,7 +590,274 @@ const dima: PersonaDef = {
   },
 }
 
-const PERSONAS: PersonaDef[] = [masha, andrey, olya, kirill, dima]
+// ──────────────────────────────────────────────────────────────
+// 6. Настя — обычная сбалансированная жизнь, без экстремальных
+// паттернов и без пропусков. Контраст к «архетипам» выше.
+// ──────────────────────────────────────────────────────────────
+const nastya: PersonaDef = {
+  email: 'nastya@test.local',
+  firstName: 'Настя',
+  lastName: 'Кузнецова',
+  name: 'Настя',
+  profile: {
+    age: 26, weightKg: 58, heightCm: 164, gender: 'female',
+    nutritionGoal: 'maintain',
+    chronotype: 'early_bird',
+    sleepGoalHours: 8, baselineStress: 5,
+    activityLevel: 'light', workoutsPerWeek: 2, avgWorkoutDurationMin: 40,
+    primaryGoal: 'energy', goals: ['energy', 'mood'],
+    sportTypes: ['yoga', 'gym'],
+    sportGoal: 'stay_healthy',
+  },
+  generateDay: (_i, dateStr) => {
+    const weekend = isWeekend(dateStr)
+    const sleep = buildSleep(
+      hhmm(weekend ? 23 : 22, rnd(30, 59)),
+      hhmm(weekend ? 9 : 7, rnd(0, 30)),
+      rnd(6, 8),
+      rnd(0, 2),
+    )
+    const trainsToday = !weekend && chance(0.4)
+    return {
+      sleep,
+      mood: { moodScore: rnd(5, 8), time: hhmm(8, 0) },
+      stress: [
+        { level: rnd(4, 6), time: hhmm(11, 0) },
+        { level: rnd(3, 5), time: hhmm(18, 0) },
+      ],
+      activity: trainsToday
+        ? [{ type: 'gym', intensity: 'moderate', durationMinutes: rnd(35, 50), time: hhmm(19, 0), caloriesBurned: rnd(200, 300) }]
+        : (weekend && chance(0.5)
+          ? [{ type: 'yoga', intensity: 'light', durationMinutes: rnd(30, 45), time: hhmm(11, 0), caloriesBurned: rnd(100, 150) }]
+          : []),
+      water: [
+        { amountMl: 300, time: hhmm(8, 0) },
+        { amountMl: 400, time: hhmm(11, 0) },
+        { amountMl: 400, time: hhmm(14, 0) },
+        { amountMl: 400, time: hhmm(17, 0) },
+        { amountMl: rnd(200, 400), time: hhmm(20, 0) },
+      ],
+      nutrition: [
+        { time: hhmm(8, 30), mealType: 'breakfast', meal: pick(BREAKFASTS_HEALTHY) },
+        { time: hhmm(13, 0), mealType: 'lunch', meal: pick(LUNCHES_HEALTHY) },
+        ...(chance(0.4) ? [{ time: hhmm(16, 30), mealType: 'snack', meal: pick(SKIP_OR_SNACK) }] : []),
+        { time: hhmm(19, 30), mealType: 'dinner', meal: pick(DINNERS_HEALTHY) },
+      ],
+    }
+  },
+}
+
+// ──────────────────────────────────────────────────────────────
+// 7. Павел — сидячий бухгалтер, обычное неидеальное питание.
+// Пропуск: 3 дня подряд (командировка, вообще не открывал приложение).
+// ──────────────────────────────────────────────────────────────
+const pavel: PersonaDef = {
+  email: 'pavel@test.local',
+  firstName: 'Павел',
+  lastName: 'Титов',
+  name: 'Павел',
+  profile: {
+    age: 45, weightKg: 92, heightCm: 176, gender: 'male',
+    nutritionGoal: 'lose_weight',
+    chronotype: 'early_bird',
+    sleepGoalHours: 7, baselineStress: 5,
+    activityLevel: 'sedentary', workoutsPerWeek: 0, avgWorkoutDurationMin: 0,
+    primaryGoal: 'weight', goals: ['weight', 'energy'],
+    sportTypes: ['none'],
+    sportGoal: 'lose_weight',
+  },
+  generateDay: (i, dateStr) => {
+    // Командировка в середине окна — 3 дня подряд без единой записи.
+    if (i >= 6 && i <= 8) return null
+
+    const weekend = isWeekend(dateStr)
+    const sleep = buildSleep(
+      hhmm(23, rnd(0, 30)),
+      hhmm(weekend ? 8 : 6, rnd(30, 59)),
+      rnd(5, 7),
+      rnd(0, 2),
+    )
+    return {
+      sleep,
+      mood: { moodScore: rnd(5, 7), time: hhmm(7, 30) },
+      stress: [
+        { level: rnd(5, 7), time: hhmm(11, 0) },
+        { level: rnd(5, 6), time: hhmm(16, 0) },
+      ],
+      activity: weekend && chance(0.3)
+        ? [{ type: 'walk', intensity: 'light', durationMinutes: rnd(20, 35), time: hhmm(12, 0), caloriesBurned: rnd(70, 120) }]
+        : [],
+      water: [
+        { amountMl: 300, time: hhmm(8, 0) },
+        { amountMl: 300, time: hhmm(12, 0) },
+        { amountMl: 300, time: hhmm(16, 0) },
+        { amountMl: 300, time: hhmm(20, 0) },
+      ],
+      nutrition: [
+        { time: hhmm(7, 30), mealType: 'breakfast', meal: pick(QUICK_BREAKFASTS) },
+        { time: hhmm(13, 0), mealType: 'lunch', meal: pick(LUNCHES_HEALTHY) },
+        { time: hhmm(19, 30), mealType: 'dinner', meal: chance(0.4) ? pick(LATE_HEAVY_DINNERS) : pick(DINNERS_HEALTHY) },
+      ],
+    }
+  },
+}
+
+// ──────────────────────────────────────────────────────────────
+// 8. Лена — фрилансер-дизайнер, плавающий график, умеренный стресс.
+// Пропуски: 3 разрозненных дня (закрутилась, забыла записать).
+// ──────────────────────────────────────────────────────────────
+const lena: PersonaDef = {
+  email: 'lena@test.local',
+  firstName: 'Лена',
+  lastName: 'Фёдорова',
+  name: 'Лена',
+  profile: {
+    age: 30, weightKg: 62, heightCm: 170, gender: 'female',
+    nutritionGoal: 'maintain',
+    chronotype: 'no_routine',
+    sleepGoalHours: 8, baselineStress: 5,
+    activityLevel: 'light', workoutsPerWeek: 2, avgWorkoutDurationMin: 35,
+    primaryGoal: 'mood', goals: ['mood', 'energy', 'sleep'],
+    sportTypes: ['yoga'],
+    sportGoal: 'reduce_stress',
+  },
+  generateDay: (i, _dateStr) => {
+    // Не подряд — реалистичнее, чем один провал: то занята, то забыла.
+    if (i === 2 || i === 7 || i === 11) return null
+
+    const lateStart = chance(0.4) // фриланс — плавающий график
+    const sleep = buildSleep(
+      hhmm(lateStart ? 1 : 23, rnd(0, 45)),
+      hhmm(lateStart ? 9 : 8, rnd(0, 40)),
+      rnd(5, 8),
+      rnd(0, 2),
+    )
+    return {
+      sleep,
+      mood: { moodScore: rnd(5, 8), time: hhmm(10, 0) },
+      stress: [
+        { level: rnd(4, 6), time: hhmm(14, 0) },
+        { level: rnd(3, 6), time: hhmm(21, 0) },
+      ],
+      activity: chance(0.35)
+        ? [{ type: 'yoga', intensity: 'light', durationMinutes: rnd(30, 45), time: hhmm(11, 0), caloriesBurned: rnd(100, 160) }]
+        : [],
+      water: [
+        { amountMl: 300, time: hhmm(10, 0) },
+        { amountMl: 400, time: hhmm(13, 0) },
+        { amountMl: 400, time: hhmm(17, 0) },
+        { amountMl: rnd(200, 400), time: hhmm(21, 0) },
+      ],
+      nutrition: [
+        { time: hhmm(11, 0), mealType: 'breakfast', meal: pick(BREAKFASTS_HEALTHY) },
+        { time: hhmm(15, 0), mealType: 'lunch', meal: pick(LUNCHES_HEALTHY) },
+        { time: hhmm(20, rnd(0, 45)), mealType: 'dinner', meal: chance(0.3) ? pick(LATE_HEAVY_DINNERS) : pick(DINNERS_HEALTHY) },
+      ],
+    }
+  },
+}
+
+// ──────────────────────────────────────────────────────────────
+// 9. Виктор — таксист, ночные смены через день, хронический недосып
+// и перекусы в дороге. Пропуск: 2 дня подряд (болел).
+// ──────────────────────────────────────────────────────────────
+const viktor: PersonaDef = {
+  email: 'viktor@test.local',
+  firstName: 'Виктор',
+  lastName: 'Гуров',
+  name: 'Виктор',
+  profile: {
+    age: 50, weightKg: 95, heightCm: 174, gender: 'male',
+    nutritionGoal: 'lose_weight',
+    chronotype: 'no_routine',
+    sleepGoalHours: 7, baselineStress: 6,
+    activityLevel: 'sedentary', workoutsPerWeek: 0, avgWorkoutDurationMin: 0,
+    primaryGoal: 'stress', goals: ['stress', 'weight', 'sleep'],
+    sportTypes: ['none'],
+    sportGoal: null,
+  },
+  generateDay: (i, dateStr) => {
+    // Заболел на пару дней — не открывал приложение.
+    if (i === 4 || i === 5) return null
+
+    const dow = dowOf(dateStr)
+    const nightShift = dow % 2 === 0 // через день ночная смена
+    const sleep = nightShift
+      ? buildSleep(hhmm(rnd(9, 10), rnd(0, 30)), hhmm(rnd(15, 16), rnd(0, 30)), rnd(4, 6), rnd(1, 3))
+      : buildSleep(hhmm(rnd(0, 1), rnd(0, 45)), hhmm(rnd(7, 8), rnd(0, 30)), rnd(5, 7), rnd(1, 2))
+    return {
+      sleep,
+      mood: { moodScore: rnd(4, 6), time: hhmm(nightShift ? 16 : 8, 0) },
+      stress: [
+        { level: rnd(5, 8), time: hhmm(13, 0) },
+        { level: rnd(6, 8), time: hhmm(22, 0) },
+      ],
+      activity: [],
+      water: [
+        { amountMl: rnd(200, 300), time: hhmm(nightShift ? 17 : 9, 0) },
+        { amountMl: rnd(200, 300), time: hhmm(nightShift ? 21 : 14, 0) },
+        { amountMl: rnd(200, 300), time: hhmm(nightShift ? 1 : 19, 0) },
+      ],
+      nutrition: [
+        { time: hhmm(nightShift ? 17 : 9, 0), mealType: 'breakfast', meal: pick(QUICK_BREAKFASTS) },
+        { time: hhmm(nightShift ? 21 : 14, 0), mealType: 'lunch', meal: pick(SKIP_OR_SNACK) },
+        { time: hhmm(nightShift ? 1 : 21, 0), mealType: 'dinner', meal: pick(LATE_HEAVY_DINNERS) },
+      ],
+    }
+  },
+}
+
+// ──────────────────────────────────────────────────────────────
+// 10. Катя — первокурсница, в целом нормальная студенческая жизнь,
+// лёгкая нерегулярность без хаоса Димы. Без пропусков.
+// ──────────────────────────────────────────────────────────────
+const katya: PersonaDef = {
+  email: 'katya@test.local',
+  firstName: 'Катя',
+  lastName: 'Смирнова',
+  name: 'Катя',
+  profile: {
+    age: 19, weightKg: 56, heightCm: 165, gender: 'female',
+    nutritionGoal: 'maintain',
+    chronotype: 'night_owl',
+    sleepGoalHours: 8, baselineStress: 4,
+    activityLevel: 'light', workoutsPerWeek: 1, avgWorkoutDurationMin: 40,
+    primaryGoal: 'energy', goals: ['energy', 'mood'],
+    sportTypes: ['team_sports'],
+    sportGoal: 'stay_healthy',
+  },
+  generateDay: (_i, dateStr) => {
+    const weekend = isWeekend(dateStr)
+    const sleep = buildSleep(
+      hhmm(weekend ? 1 : 0, rnd(0, 40)),
+      hhmm(weekend ? 10 : 8, rnd(0, 40)),
+      rnd(6, 8),
+      rnd(0, 1),
+    )
+    return {
+      sleep,
+      mood: { moodScore: rnd(6, 8), time: hhmm(10, 0) },
+      stress: [{ level: rnd(3, 6), time: hhmm(15, 0) }],
+      activity: (!weekend && chance(0.25))
+        ? [{ type: 'sport', intensity: 'moderate', durationMinutes: rnd(40, 60), time: hhmm(18, 0), caloriesBurned: rnd(150, 250) }]
+        : [],
+      water: [
+        { amountMl: 300, time: hhmm(11, 0) },
+        { amountMl: 400, time: hhmm(14, 0) },
+        { amountMl: 400, time: hhmm(18, 0) },
+        { amountMl: rnd(200, 300), time: hhmm(22, 0) },
+      ],
+      nutrition: [
+        { time: hhmm(11, 0), mealType: 'breakfast', meal: pick(QUICK_BREAKFASTS) },
+        { time: hhmm(14, 30), mealType: 'lunch', meal: chance(0.5) ? pick(LUNCHES_HEALTHY) : pick(SKIP_OR_SNACK) },
+        { time: hhmm(19, 30), mealType: 'dinner', meal: pick(DINNERS_HEALTHY) },
+        ...(chance(0.4) ? [{ time: hhmm(23, 0), mealType: 'snack' as const, meal: pick(SKIP_OR_SNACK) }] : []),
+      ],
+    }
+  },
+}
+
+const PERSONAS: PersonaDef[] = [masha, andrey, olya, kirill, dima, nastya, pavel, lena, viktor, katya]
 const DAYS = 14
 
 // ── Main ──────────────────────────────────────────────────────
@@ -645,9 +930,15 @@ async function main() {
     await profileRepo.save(profile)
 
     // 14 дней данных: i=13 → 14 дней назад, i=0 → вчера
+    let gapDays = 0
     for (let i = DAYS - 1; i >= 0; i--) {
       const date = daysAgo(i + 1)
       const day = persona.generateDay(i, date)
+
+      if (day === null) {
+        gapDays++
+        continue // пропуск трекинга — ни одной записи за этот день
+      }
 
       if (day.sleep) {
         await sleepRepo.save(sleepRepo.create({
@@ -699,7 +990,11 @@ async function main() {
         }))
       }
     }
-    console.log(`   📅 ${DAYS} дней данных вставлено`)
+    console.log(
+      gapDays > 0
+        ? `   📅 ${DAYS - gapDays} дней данных вставлено, ${gapDays} пропущено (без записей)`
+        : `   📅 ${DAYS} дней данных вставлено`
+    )
   }
 
   console.log('\n══════════════════════════════════════════')
@@ -759,6 +1054,31 @@ function printVerificationGuide() {
 ║ Полная регенерация: запусти этот скрипт повторно                  ║
 ║ (старые записи будут удалены и пересозданы).                      ║
 ╚═══════════════════════════════════════════════════════════════════╝
+
+── Ещё 5 персонажей: обычные кейсы + реалистичные пропуски трекинга ──
+
+ 6. nastya@test.local — Настя, 26, HR-менеджер. 58кг/164см/maintain.
+    Сбалансированная жизнь без экстрима: сон 6-8ч, зал/йога 2 р/нед.
+    Пропусков нет — baseline «нормального» пользователя.
+
+ 7. pavel@test.local — Павел, 45, бухгалтер. 92кг/176см/lose_weight.
+    Сидячий образ жизни, спорта нет, питание обычное неидеальное.
+    Пропуск: 3 дня подряд (командировка, не открывал приложение).
+
+ 8. lena@test.local — Лена, 30, фрилансер-дизайнер. 62кг/170см/maintain.
+    Плавающий график, умеренный стресс, йога время от времени.
+    Пропуски: 3 разрозненных дня (закрутилась, забыла записать).
+
+ 9. viktor@test.local — Виктор, 50, таксист. 95кг/174см/lose_weight.
+    Ночные смены через день, хронический недосып, еда в дороге.
+    Пропуск: 2 дня подряд (болел).
+
+10. katya@test.local — Катя, 19, первокурсница. 56кг/165см/maintain.
+    Нормальная студенческая жизнь, лёгкая нерегулярность без хаоса.
+    Пропусков нет.
+
+Проверка пропусков: на /dashboard/recommendations у Павла/Лены/Виктора
+баннер аномалий должен показать тип «пропуск данных» (gap) за эти дни.
 `)
 }
 

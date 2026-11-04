@@ -14,10 +14,13 @@ import {
 import { useRouter } from 'expo-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 import Slider from '@react-native-community/slider';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { createSleep } from '@/lib/health-api';
 import { VoiceInputButton } from '@/components/ui/VoiceInputButton';
+import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles';
+import { useTheme } from '@/context/ThemeContext';
 
 function parseHmm(s?: string | null): Date | null {
   if (!s) return null;
@@ -43,6 +46,8 @@ function formatTime(date: Date): string {
 export default function AddSleepModal() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   const [bedTime, setBedTime] = useState(new Date(new Date().setHours(23, 0, 0, 0)));
   const [wakeTime, setWakeTime] = useState(new Date(new Date().setHours(7, 0, 0, 0)));
@@ -65,11 +70,13 @@ export default function AddSleepModal() {
       });
     },
     onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       queryClient.invalidateQueries({ queryKey: ['sleep'] });
       Alert.alert('✅ Успешно', 'Сон сохранён');
       router.back();
     },
     onError: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('❌ Ошибка', 'Не удалось сохранить сон. Проверьте данные.');
     },
   });
@@ -101,7 +108,7 @@ export default function AddSleepModal() {
       <View style={styles.header}>
         <Text style={styles.title}>Добавить сон</Text>
         <TouchableOpacity onPress={handleClose} hitSlop={12}>
-          <X size={28} color="#9ca3af" />
+          <X size={28} color={colors.mutedForeground} />
         </TouchableOpacity>
       </View>
 
@@ -145,7 +152,7 @@ export default function AddSleepModal() {
                 display="spinner"
                 onChange={handleTimeChange(setBedTime, setShowBedPicker)}
                 style={styles.timePicker}
-                textColor="#f5f5f5"
+                textColor={colors.foreground}
               />
             ) : (
               <>
@@ -173,7 +180,7 @@ export default function AddSleepModal() {
                 display="spinner"
                 onChange={handleTimeChange(setWakeTime, setShowWakePicker)}
                 style={styles.timePicker}
-                textColor="#f5f5f5"
+                textColor={colors.foreground}
               />
             ) : (
               <>
@@ -202,9 +209,9 @@ export default function AddSleepModal() {
             step={1}
             value={quality}
             onValueChange={setQuality}
-            minimumTrackTintColor="#a3e635"
-            maximumTrackTintColor="#27272a"
-            thumbTintColor="#a3e635"
+            minimumTrackTintColor={colors.primary}
+            maximumTrackTintColor={colors.inputBorder}
+            thumbTintColor={colors.primary}
           />
           <View style={styles.sliderLabels}>
             <Text style={styles.sliderLabel}>Плохо</Text>
@@ -220,7 +227,7 @@ export default function AddSleepModal() {
             value={interruptions}
             onChangeText={setInterruptions}
             placeholder="0"
-            placeholderTextColor="#6b7280"
+            placeholderTextColor={colors.mutedForeground}
             keyboardType="number-pad"
           />
         </View>
@@ -232,7 +239,7 @@ export default function AddSleepModal() {
             value={notes}
             onChangeText={setNotes}
             placeholder="Как спалось, что мешало..."
-            placeholderTextColor="#6b7280"
+            placeholderTextColor={colors.mutedForeground}
             multiline
             numberOfLines={4}
             textAlignVertical="top"
@@ -247,7 +254,7 @@ export default function AddSleepModal() {
           disabled={mutation.isPending}
         >
           {mutation.isPending ? (
-            <ActivityIndicator color="#0a0a0a" />
+            <ActivityIndicator color={colors.primaryForeground} />
           ) : (
             <Text style={styles.saveBtnText}>СОХРАНИТЬ</Text>
           )}
@@ -257,8 +264,8 @@ export default function AddSleepModal() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f0f0f' },
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -267,50 +274,50 @@ const styles = StyleSheet.create({
     paddingTop: 50,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#1f1f1f',
+    borderBottomColor: colors.border,
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#f5f5f5' },
+  title: { fontSize: 20, fontWeight: '700', color: colors.foreground },
   content: { flex: 1, paddingHorizontal: 20, paddingTop: 24 },
   row: { flexDirection: 'row', gap: 12, marginBottom: 24 },
   fieldHalf: { flex: 1 },
   field: { marginBottom: 24 },
-  label: { fontSize: 15, fontWeight: '500', color: '#9ca3af', marginBottom: 8 },
+  label: { fontSize: 15, fontWeight: '500', color: colors.mutedForeground, marginBottom: 8 },
   input: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.input,
     borderWidth: 1,
-    borderColor: '#27272a',
+    borderColor: colors.inputBorder,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 17,
-    color: '#f5f5f5',
+    color: colors.foreground,
   },
   textarea: { minHeight: 110, paddingTop: 14 },
   timePicker: { height: 130 },
   timeButton: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#27272a',
+    borderColor: colors.border,
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
   },
-  timeButtonText: { fontSize: 18, fontWeight: '600', color: '#f5f5f5' },
+  timeButtonText: { fontSize: 18, fontWeight: '600', color: colors.foreground },
   slider: { width: '100%', height: 40 },
   sliderLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
-  sliderLabel: { fontSize: 13, color: '#6b7280' },
-  sliderValue: { fontSize: 15, fontWeight: '700', color: '#f5f5f5' },
+  sliderLabel: { fontSize: 13, color: colors.mutedForeground },
+  sliderValue: { fontSize: 15, fontWeight: '700', color: colors.foreground },
   footer: {
     padding: 20,
     borderTopWidth: 1,
-    borderTopColor: '#1f1f1f',
+    borderTopColor: colors.border,
   },
   saveBtn: {
-    backgroundColor: '#a3e635',
+    backgroundColor: colors.primary,
     borderRadius: 12,
     paddingVertical: 18,
     alignItems: 'center',
   },
   saveBtnDisabled: { opacity: 0.6 },
-  saveBtnText: { fontSize: 16, fontWeight: '700', color: '#0a0a0a', letterSpacing: 0.5 },
+  saveBtnText: { fontSize: 16, fontWeight: '700', color: colors.primaryForeground, letterSpacing: 0.5 },
 });

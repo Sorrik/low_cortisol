@@ -14,13 +14,22 @@ export interface RelevantArticle {
   relevance: number
 }
 
+/**
+ * Эмбеддер на базе OpenAI text-embedding-3-small (1536-dim). По умолчанию
+ * ходит через proxyapi.ru — выходит ~0,02 ₽ на полный пересев корпуса.
+ * Используется как embedding-функция коллекции ChromaDB: при поиске
+ * запрос пользователя проходит тот же преобразователь, что и аннотации
+ * при сидинге, иначе косинусное расстояние теряет смысл.
+ */
 class OpenAIEmbedder implements EmbeddingFunction {
   constructor(
     private readonly apiKey: string,
     private readonly baseURL: string,
+    private readonly model: string = 'text-embedding-3-small',
   ) {}
 
   async generate(texts: string[]): Promise<number[][]> {
+    if (texts.length === 0) return []
     const res = await fetch(`${this.baseURL}/embeddings`, {
       method: 'POST',
       signal: AbortSignal.timeout(15_000),
@@ -28,22 +37,17 @@ class OpenAIEmbedder implements EmbeddingFunction {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.apiKey}`,
       },
-      body: JSON.stringify({
-        model: 'text-embedding-3-small',
-        input: texts,
-      }),
+      body: JSON.stringify({ model: this.model, input: texts }),
     })
     if (!res.ok) {
       const body = await res.text()
-      throw new Error(`Embedding request failed (${res.status}): ${body.slice(0, 300)}`)
+      throw new Error(`OpenAI embeddings failed (${res.status}): ${body.slice(0, 300)}`)
     }
-
     const data = await res.json() as any
     if (!Array.isArray(data?.data)) {
-      throw new Error('Embedding response payload is missing data[]')
+      throw new Error('OpenAI embeddings: payload missing data[]')
     }
-
-    return data.data.map((d: any) => d.embedding)
+    return data.data.map((d: any) => d.embedding as number[])
   }
 }
 
@@ -59,7 +63,7 @@ function makeChromaClient(url: string): ChromaClient {
 export class RagService implements OnModuleInit {
   private readonly logger = new Logger(RagService.name)
   private client: ChromaClient
-  private embedder: OpenAIEmbedder
+  private embedder: EmbeddingFunction
   private collection: Collection | null = null
   private lastEnsureAttemptAt = 0
 
@@ -83,10 +87,11 @@ export class RagService implements OnModuleInit {
     this.embedder = new OpenAIEmbedder(
       this.config.get<string>('OPENAI_API_KEY', ''),
       this.config.get<string>('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+      this.config.get<string>('OPENAI_EMBEDDINGS_MODEL', 'text-embedding-3-small'),
     )
 
-    const raw = Number(this.config.get<string>('RAG_MAX_DISTANCE', '0.85'))
-    this.maxDistance = Number.isFinite(raw) && raw > 0 ? raw : 0.85
+    const raw = Number(this.config.get<string>('RAG_MAX_DISTANCE', '0.9'))
+    this.maxDistance = Number.isFinite(raw) && raw > 0 ? raw : 0.9
   }
 
   async onModuleInit() {
@@ -147,14 +152,33 @@ export class RagService implements OnModuleInit {
   private _buildSemanticQueries(ctx: HealthQueryContext): string[] {
     const queries: string[] = []
 
-    if (ctx.avgSleepHours < 6) queries.push('sleep deprivation health consequences cortisol mood')
-    else if (ctx.avgSleepHours < 7) queries.push('insufficient sleep cognitive performance well-being')
-    if (ctx.avgStress > 6) queries.push('chronic stress cortisol reduction intervention')
-    if (ctx.avgActivityMinutes < 20) queries.push('physical activity exercise mental health depression')
-    if (ctx.avgWaterGlasses < 6) queries.push('dehydration cognitive function mood fatigue')
-    if (ctx.avgMood < 5) queries.push('low mood intervention lifestyle mental health')
+    // Проблемные сценарии — пороги смягчены, чтобы покрыть и
+    // «субоптимальные» состояния (сон 7-7.5ч и т.п.), которые в карточках
+    // могут оказаться attention/alert по личной норме.
+    if (ctx.avgSleepHours < 6)        queries.push('sleep deprivation health consequences cortisol mood')
+    else if (ctx.avgSleepHours < 7.5) queries.push('insufficient sleep cognitive performance well-being')
 
-    if (queries.length === 0) queries.push('lifestyle health optimization well-being')
+    if (ctx.avgStress >= 5)           queries.push('chronic stress cortisol reduction intervention')
+    if (ctx.avgActivityMinutes < 30)  queries.push('physical activity exercise mental health depression')
+    if (ctx.avgWaterGlasses < 8)      queries.push('dehydration cognitive function mood fatigue')
+    if (ctx.avgMood < 6)              queries.push('low mood intervention lifestyle mental health')
+
+    // Питание: дефицит белка ИЛИ низкая калорийность
+    if (ctx.avgProteinGrams > 0 && ctx.avgProteinGrams < 70) {
+      queries.push('protein intake mood serotonin tryptophan deficiency')
+    }
+    if (ctx.avgCalories > 0 && ctx.avgCalories < 1500) {
+      queries.push('caloric restriction fatigue mood cognitive function')
+    }
+
+    // Если всё в норме — ищем статьи про поддержание хороших привычек,
+    // чтобы и good-карточки имели научную подложку
+    if (queries.length === 0) {
+      if (ctx.avgSleepHours >= 7)       queries.push('healthy sleep quality circadian rhythm benefits')
+      if (ctx.avgActivityMinutes >= 20) queries.push('regular physical activity benefits mood well-being')
+      if (ctx.avgMood >= 7)             queries.push('positive affect well-being happiness daily life')
+      if (queries.length === 0)         queries.push('lifestyle health optimization well-being')
+    }
 
     return queries.slice(0, 3)
   }
@@ -221,4 +245,6 @@ export interface HealthQueryContext {
   avgMood: number
   avgActivityMinutes: number
   avgWaterGlasses: number
+  avgCalories: number
+  avgProteinGrams: number
 }

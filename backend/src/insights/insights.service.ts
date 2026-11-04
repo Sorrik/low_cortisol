@@ -10,7 +10,7 @@ import { MoreThanOrEqual, Repository } from 'typeorm'
 
 import { LlmService, RecommendationsResult, ArticleSource } from '../llm/llm.service'
 import { MlPrediction, UserFeedbackSummary } from '../llm/prompt-builder'
-import { MlPredictResponseDto, ModelMetaDto, RecommendationDto } from '../ml/dto/ml-response.dto'
+import { MlPredictResponseDto, ModelMetaDto, RecommendationDto, CausalChainDto } from '../ml/dto/ml-response.dto'
 import { MlService } from '../ml/ml.service'
 import { UserProfileService } from '../user-profile/user-profile.service'
 import { ActivityData } from '../activity/activity.entity'
@@ -25,7 +25,7 @@ import { AnomalyDetectionService, AnomalyReport } from './anomaly-detection.serv
 import { CacheInvalidationService } from './cache-invalidation.service'
 import { CalorieThresholdsService } from './calorie-thresholds.service'
 import { CausalChainService } from './causal-chain.service'
-import { CausalChain, CausalChainSummary, toChainSummary } from './causal-chain.types'
+import { CausalChain, CausalChainSummary, CHAIN_RELEVANT_METRICS, toChainSummary } from './causal-chain.types'
 import { ConsistencyService, ConsistencySnapshot } from './consistency.service'
 import { MetricsAdapter } from './metrics-adapter'
 import { RecommendationRulesService, RuleResult } from './recommendation-rules.service'
@@ -416,8 +416,12 @@ export class InsightsService {
 
     // ── Финальная сборка: consistency + ids + model_meta + structured-trace ──
     const today = new Date().toISOString().slice(0, 10)
+    const recsWithChain = this._ensureCausalChainAttached(
+      llmResult.recommendations,
+      causalChainsResult.chains,
+    )
     const finalRecs = this._assignRecommendationIds(
-      this._applyConsistency(llmResult.recommendations, consistency),
+      this._applyConsistency(recsWithChain, consistency),
       today,
     )
     const finalMlRecs = this._assignRecommendationIds(
@@ -568,6 +572,68 @@ export class InsightsService {
       this.logger.error(`[LLM] unavailable -> Python fallback (${pythonFallback.length}): ${err}`)
       return { recommendations: pythonFallback, sources: [] }
     }
+  }
+
+  /**
+   * Safety-net для причинно-следственных цепочек. Промпт обязывает LLM
+   * прикрепить причинно-следственную цепочку (см. правило 11 в
+   * prompt-builder) к минимум одной рекомендации, если есть цепочка со
+   * strength strong/moderate — но модель не всегда следует этой
+   * инструкции надёжно (буквально одна из многих инструкций в длинном
+   * системном промпте). Раздел «Почему этот совет» в UI молча пропадает,
+   * хотя причина в данных пользователя реально есть.
+   *
+   * Если ни одна рекомендация не несёт цепочку — прикрепляем сами:
+   * берём цепочку с наивысшим priority и вешаем её на первую
+   * рекомендацию, чья metric входит в relevantMetrics этой цепочки.
+   * Текст title/description рекомендации не трогаем — только
+   * структурированные данные цепочки для блока «Почему этот совет».
+   */
+  private _ensureCausalChainAttached(
+    recs: RecommendationDto[],
+    chains: CausalChain[],
+  ): RecommendationDto[] {
+    if (recs.some(r => r.causal_chain != null)) return recs
+
+    const candidate = [...chains]
+      .filter(c => c.strength !== 'weak')
+      .sort((a, b) => b.priority - a.priority)[0]
+    if (!candidate) return recs
+
+    const relevantMetrics = CHAIN_RELEVANT_METRICS[candidate.chainId] ?? []
+    const eligible = recs
+      .map((r, idx) => ({ r, idx }))
+      .filter(({ r }) => relevantMetrics.includes(r.metric))
+    if (eligible.length === 0) return recs
+
+    // Позитивную цепочку (F1/F2 — «держишь хороший паттерн») цепляем к
+    // good-карточке, а не к alert — иначе получается «вот тебе критичный
+    // дефицит калорий, а причина — что ты 5 дней подряд молодец» (реальный
+    // случай, из-за которого это правило появилось). Для остальных
+    // (проблемных) цепочек — наоборот, ищем alert/attention в приоритете.
+    const preferredSeverities: RecommendationDto['severity'][] =
+      candidate.category === 'positive' ? ['good'] : ['alert', 'attention']
+    const bestMatch =
+      preferredSeverities.map(sev => eligible.find(({ r }) => r.severity === sev)).find(Boolean)
+      ?? eligible[0]
+    const targetIdx = bestMatch.idx
+
+    this.logger.warn(
+      `[causal] LLM не прикрепила ни одной цепочки при ${chains.length} доступных — ` +
+      `прикрепляем ${candidate.chainId} (priority=${candidate.priority}) сами ` +
+      `к рекомендации metric=${recs[targetIdx].metric}`,
+    )
+
+    const chainDto: CausalChainDto = {
+      chain_id: candidate.chainId,
+      trigger:  candidate.trigger.description,
+      mediator: candidate.mediator?.description ?? null,
+      outcome:  candidate.outcome.description,
+      lag:      candidate.lagDescription,
+      strength: candidate.strength,
+    }
+
+    return recs.map((r, i) => (i === targetIdx ? { ...r, causal_chain: chainDto } : r))
   }
 
   private _buildLlmStateHash(

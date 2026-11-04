@@ -9,6 +9,7 @@ import {
 import { useRouter } from 'expo-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Check, Sparkles } from 'lucide-react-native'
+import * as Haptics from 'expo-haptics'
 import {
   createNutrition,
   analyzeFoodPhoto,
@@ -16,6 +17,8 @@ import {
 } from '@/lib/health-api'
 import { PhotoPicker, type PhotoResult } from '@/components/ui/PhotoPicker'
 import { VoiceInputButton } from '@/components/ui/VoiceInputButton'
+import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles'
+import { useTheme } from '@/context/ThemeContext'
 
 function todayStr(): string {
   const d = new Date()
@@ -41,6 +44,8 @@ interface PickedItem extends AnalyzedFoodItem {
 export default function AddNutritionModal() {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
 
   const [mealType, setMealType]       = useState('lunch')
   const [mealTime, setMealTime]       = useState(nowTime())
@@ -89,11 +94,13 @@ export default function AddNutritionModal() {
       })
     },
     onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
       queryClient.invalidateQueries({ queryKey: ['nutrition'] })
       Alert.alert('✅ Успешно', 'Приём пищи сохранён')
       router.back()
     },
     onError: (err: any) => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
       if (err.message === 'calories required') {
         Alert.alert('⚠️ Внимание', 'Укажите калории')
       } else {
@@ -148,7 +155,7 @@ export default function AddNutritionModal() {
         <View style={styles.header}>
           <Text style={styles.title}>Распознано</Text>
           <TouchableOpacity onPress={cancelRecognized} hitSlop={12}>
-            <X size={28} color="#9ca3af" />
+            <X size={28} color={colors.mutedForeground} />
           </TouchableOpacity>
         </View>
 
@@ -163,7 +170,7 @@ export default function AddNutritionModal() {
               activeOpacity={0.8}
             >
               <View style={[styles.checkbox, item.selected && styles.checkboxActive]}>
-                {item.selected && <Check size={14} color="#0a0a0a" />}
+                {item.selected && <Check size={14} color={colors.primaryForeground} />}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.recName}>{item.name}</Text>
@@ -196,7 +203,7 @@ export default function AddNutritionModal() {
       <View style={styles.header}>
         <Text style={styles.title}>Добавить: Питание</Text>
         <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
-          <X size={28} color="#9ca3af" />
+          <X size={28} color={colors.mutedForeground} />
         </TouchableOpacity>
       </View>
 
@@ -205,7 +212,7 @@ export default function AddNutritionModal() {
         {/* Voice input */}
         <View style={styles.field}>
           <View style={styles.aiHeader}>
-            <Sparkles size={16} color="#a3e635" />
+            <Sparkles size={16} color={colors.primary} />
             <Text style={styles.aiLabel}>Надиктовать</Text>
           </View>
           <VoiceInputButton
@@ -257,12 +264,12 @@ export default function AddNutritionModal() {
         {/* AI photo picker */}
         <View style={styles.field}>
           <View style={styles.aiHeader}>
-            <Sparkles size={16} color="#a3e635" />
+            <Sparkles size={16} color={colors.primary} />
             <Text style={styles.aiLabel}>Распознать по фото</Text>
           </View>
           {visionMutation.isPending ? (
             <View style={styles.aiLoading}>
-              <ActivityIndicator color="#a3e635" />
+              <ActivityIndicator color={colors.primary} />
               <Text style={styles.aiLoadingText}>AI анализирует фото…</Text>
             </View>
           ) : (
@@ -305,7 +312,7 @@ export default function AddNutritionModal() {
             value={mealTime}
             onChangeText={setMealTime}
             placeholder="21:30"
-            placeholderTextColor="#6b7280"
+            placeholderTextColor={colors.mutedForeground}
             keyboardType="numbers-and-punctuation"
             maxLength={5}
           />
@@ -320,7 +327,7 @@ export default function AddNutritionModal() {
             value={description}
             onChangeText={setDescription}
             placeholder="Овсянка с ягодами, куриная грудка..."
-            placeholderTextColor="#6b7280"
+            placeholderTextColor={colors.mutedForeground}
           />
         </View>
 
@@ -332,7 +339,7 @@ export default function AddNutritionModal() {
             value={calories}
             onChangeText={setCalories}
             placeholder="500"
-            placeholderTextColor="#6b7280"
+            placeholderTextColor={colors.mutedForeground}
             keyboardType="number-pad"
           />
         </View>
@@ -346,7 +353,7 @@ export default function AddNutritionModal() {
               value={proteins}
               onChangeText={setProteins}
               placeholder="0"
-              placeholderTextColor="#6b7280"
+              placeholderTextColor={colors.mutedForeground}
               keyboardType="decimal-pad"
             />
           </View>
@@ -358,7 +365,7 @@ export default function AddNutritionModal() {
               value={fats}
               onChangeText={setFats}
               placeholder="0"
-              placeholderTextColor="#6b7280"
+              placeholderTextColor={colors.mutedForeground}
               keyboardType="decimal-pad"
             />
           </View>
@@ -370,7 +377,7 @@ export default function AddNutritionModal() {
               value={carbs}
               onChangeText={setCarbs}
               placeholder="0"
-              placeholderTextColor="#6b7280"
+              placeholderTextColor={colors.mutedForeground}
               keyboardType="decimal-pad"
             />
           </View>
@@ -405,7 +412,7 @@ export default function AddNutritionModal() {
           disabled={saveMutation.isPending}
         >
           {saveMutation.isPending
-            ? <ActivityIndicator color="#0a0a0a" />
+            ? <ActivityIndicator color={colors.primaryForeground} />
             : <Text style={styles.saveBtnText}>СОХРАНИТЬ</Text>
           }
         </TouchableOpacity>
@@ -414,45 +421,45 @@ export default function AddNutritionModal() {
   )
 }
 
-const styles = StyleSheet.create({
-  container:            { flex: 1, backgroundColor: '#0f0f0f' },
-  header:               { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#1f1f1f' },
-  title:                { fontSize: 20, fontWeight: '700', color: '#f5f5f5' },
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  container:            { flex: 1, backgroundColor: colors.background },
+  header:               { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
+  title:                { fontSize: 20, fontWeight: '700', color: colors.foreground },
   content:              { flex: 1, paddingHorizontal: 20, paddingTop: 24 },
   row:                  { flexDirection: 'row', alignItems: 'flex-start' },
   field:                { marginBottom: 20 },
-  label:                { fontSize: 15, fontWeight: '500', color: '#9ca3af', marginBottom: 8 },
-  optional:             { fontSize: 12, color: '#6b7280', fontWeight: '400' },
-  input:                { backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#27272a', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 17, color: '#f5f5f5' },
+  label:                { fontSize: 15, fontWeight: '500', color: colors.mutedForeground, marginBottom: 8 },
+  optional:             { fontSize: 12, color: colors.mutedForeground, fontWeight: '400' },
+  input:                { backgroundColor: colors.input, borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 17, color: colors.foreground },
   mealTypeRow:          { flexDirection: 'row', gap: 10 },
-  mealTypeOption:       { flex: 1, alignItems: 'center', paddingVertical: 12, backgroundColor: '#1a1a1a', borderRadius: 12, borderWidth: 2, borderColor: '#27272a' },
-  mealTypeOptionActive: { borderColor: '#a3e635', backgroundColor: 'rgba(163,230,53,0.1)' },
+  mealTypeOption:       { flex: 1, alignItems: 'center', paddingVertical: 12, backgroundColor: colors.card, borderRadius: 12, borderWidth: 2, borderColor: colors.border },
+  mealTypeOptionActive: { borderColor: colors.primary, backgroundColor: colors.primaryMuted },
   mealTypeEmoji:        { fontSize: 20, marginBottom: 4 },
-  mealTypeLabel:        { fontSize: 11, color: '#9ca3af' },
-  mealTypeLabelActive:  { color: '#a3e635', fontWeight: '600' },
-  previewCard:          { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 14, marginBottom: 20 },
-  previewTitle:         { fontSize: 12, color: '#6b7280', marginBottom: 10 },
+  mealTypeLabel:        { fontSize: 11, color: colors.mutedForeground },
+  mealTypeLabelActive:  { color: colors.primary, fontWeight: '600' },
+  previewCard:          { backgroundColor: colors.card, borderRadius: 12, padding: 14, marginBottom: 20 },
+  previewTitle:         { fontSize: 12, color: colors.mutedForeground, marginBottom: 10 },
   previewRow:           { flexDirection: 'row', gap: 8 },
   previewBadge:         { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 8 },
-  previewValue:         { fontSize: 14, fontWeight: '700', color: '#f5f5f5' },
-  previewLabel:         { fontSize: 10, color: '#9ca3af' },
-  footer:               { padding: 20, borderTopWidth: 1, borderTopColor: '#1f1f1f' },
-  saveBtn:              { backgroundColor: '#a3e635', borderRadius: 12, paddingVertical: 18, alignItems: 'center' },
+  previewValue:         { fontSize: 14, fontWeight: '700', color: colors.foreground },
+  previewLabel:         { fontSize: 10, color: colors.mutedForeground },
+  footer:               { padding: 20, borderTopWidth: 1, borderTopColor: colors.border },
+  saveBtn:              { backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 18, alignItems: 'center' },
   saveBtnDisabled:      { opacity: 0.6 },
-  saveBtnText:          { fontSize: 16, fontWeight: '700', color: '#0a0a0a', letterSpacing: 0.5 },
-  hint:                 { fontSize: 11, color: '#6b7280', marginTop: 4 },
+  saveBtnText:          { fontSize: 16, fontWeight: '700', color: colors.primaryForeground, letterSpacing: 0.5 },
+  hint:                 { fontSize: 11, color: colors.mutedForeground, marginTop: 4 },
 
   aiHeader:             { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
-  aiLabel:              { fontSize: 15, fontWeight: '600', color: '#a3e635' },
-  aiLoading:            { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, backgroundColor: 'rgba(163,230,53,0.1)', borderRadius: 12 },
-  aiLoadingText:        { fontSize: 14, color: '#a3e635', fontWeight: '500' },
+  aiLabel:              { fontSize: 15, fontWeight: '600', color: colors.primary },
+  aiLoading:            { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, backgroundColor: colors.primaryMuted, borderRadius: 12 },
+  aiLoadingText:        { fontSize: 14, color: colors.primary, fontWeight: '500' },
 
-  recCard:              { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 14, marginBottom: 10, borderRadius: 12, backgroundColor: '#1a1a1a', borderWidth: 1.5, borderColor: '#27272a' },
-  recCardSelected:      { borderColor: '#a3e635', backgroundColor: 'rgba(163,230,53,0.08)' },
-  checkbox:             { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: '#3f3f46', marginTop: 2, alignItems: 'center', justifyContent: 'center' },
-  checkboxActive:       { backgroundColor: '#a3e635', borderColor: '#a3e635' },
-  recName:              { fontSize: 15, fontWeight: '600', color: '#f5f5f5', marginBottom: 2 },
-  recMeta:              { fontSize: 12, color: '#9ca3af', marginBottom: 4 },
-  recNutri:             { fontSize: 12, color: '#d4d4d8' },
-  recConf:              { fontSize: 11, color: '#6b7280', marginTop: 2 },
+  recCard:              { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 14, marginBottom: 10, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1.5, borderColor: colors.border },
+  recCardSelected:      { borderColor: colors.primary, backgroundColor: colors.primaryMuted },
+  checkbox:             { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: colors.border, marginTop: 2, alignItems: 'center', justifyContent: 'center' },
+  checkboxActive:       { backgroundColor: colors.primary, borderColor: colors.primary },
+  recName:              { fontSize: 15, fontWeight: '600', color: colors.foreground, marginBottom: 2 },
+  recMeta:              { fontSize: 12, color: colors.mutedForeground, marginBottom: 4 },
+  recNutri:             { fontSize: 12, color: colors.secondaryForeground },
+  recConf:              { fontSize: 11, color: colors.mutedForeground, marginTop: 2 },
 })

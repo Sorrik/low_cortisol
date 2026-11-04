@@ -80,10 +80,10 @@ export function PhotoPicker({ onPick, disabled }: Props) {
         disabled={disabled || !!loading}
       >
         {loading === 'camera' ? (
-          <ActivityIndicator color="#a3e635" />
+          <ActivityIndicator color="#76e87d" />
         ) : (
           <>
-            <CameraIcon size={18} color="#a3e635" />
+            <CameraIcon size={18} color="#76e87d" />
             <Text style={styles.btnText}>Сфоткать</Text>
           </>
         )}
@@ -95,10 +95,10 @@ export function PhotoPicker({ onPick, disabled }: Props) {
         disabled={disabled || !!loading}
       >
         {loading === 'gallery' ? (
-          <ActivityIndicator color="#a3e635" />
+          <ActivityIndicator color="#76e87d" />
         ) : (
           <>
-            <ImageIcon size={18} color="#a3e635" />
+            <ImageIcon size={18} color="#76e87d" />
             <Text style={styles.btnText}>Из галереи</Text>
           </>
         )}
@@ -123,11 +123,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     paddingVertical: 14,
-    backgroundColor: 'rgba(163,230,53,0.1)',
+    backgroundColor: 'rgba(118,232,125,0.1)',
     borderWidth: 1,
-    borderColor: 'rgba(163,230,53,0.3)',
+    borderColor: 'rgba(118,232,125,0.3)',
     borderRadius: 12,
   },
   btnDisabled: { opacity: 0.5 },
-  btnText: { fontSize: 14, fontWeight: '600', color: '#a3e635' },
+  btnText: { fontSize: 14, fontWeight: '600', color: '#76e87d' },
 })

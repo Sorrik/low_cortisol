@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import * as SystemUI from 'expo-system-ui'
 import { DarkColors, LightColors } from '@/constants/theme'
 
 type Theme = 'dark' | 'light'
@@ -36,6 +37,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }
 
   const toggleTheme = () => setTheme(theme === 'dark' ? 'light' : 'dark')
+
+  // Без этого корневое native-окно Android остаётся белым (дефолт системы)
+  // в местах, где React-контент короче экрана — expo-system-ui нигде не
+  // был подключён. Синхронизируем при каждой смене темы, а не один раз
+  // при старте, т.к. тема переключается в рантайме.
+  useEffect(() => {
+    const bg = theme === 'dark' ? DarkColors.background : LightColors.background
+    SystemUI.setBackgroundColorAsync(bg).catch(() => {})
+  }, [theme])
 
   const value = useMemo<ThemeContextValue>(() => ({
     theme,

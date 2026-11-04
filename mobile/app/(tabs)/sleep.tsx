@@ -25,6 +25,15 @@ import { getSleepRecords, addSleepRecord, updateSleepRecord, deleteSleepRecord }
 import { Button } from '@/components/ui/Button';
 import { useSleepSession } from '@/hooks/useSleepSession';
 import type { SleepRecord } from '@/types/health';
+import {
+  AccentCard,
+  MetricHero,
+  StatCard,
+  StatRow,
+  TrendCard,
+  SectionHeader,
+  computeTrend,
+} from '@/components/dashboard/metric-page-atoms';
 
 type ColorPalette = typeof DarkColors;
 const useStyles = () => {
@@ -465,153 +474,135 @@ export default function SleepScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
-        {/* Header */}
-        <Animated.View style={[styles.header, { opacity: headerFade, transform: [{ translateY: headerTranslate }] }]}>
-          <View style={styles.headerLeft}>
-            <View style={styles.iconWrapper}>
-              <Ionicons name="moon" size={26} color={colors.sleep} />
-            </View>
-            <View>
-              <Text style={styles.title}>Сон</Text>
-              <Text style={styles.subtitle}>Отслеживание качества сна</Text>
-            </View>
-          </View>
-          <TouchableOpacity
-            style={styles.addHeaderButton}
-            onPress={() => {
-              setEditRecord(null);
-              setModalVisible(true);
-            }}
-            activeOpacity={0.8}
+        {/* Hero card */}
+        <Animated.View style={{ opacity: headerFade, transform: [{ translateY: headerTranslate }] }}>
+          <MetricHero
+            icon="moon"
+            title="Сон"
+            color={colors.sleep}
+            colorMuted={colors.sleepMuted}
+            hasTodayRecord={!!todayRecord}
+            subtitle={
+              todayRecord
+                ? `Сегодня: ${todayRecord.hours.toFixed(1)}ч · качество ${todayRecord.quality}/10`
+                : session
+                  ? `Сплю с ${session.bedTimeHHMM}`
+                  : 'Запись за сегодня не добавлена'
+            }
+            onAction={
+              session
+                ? undefined
+                : () => {
+                    setEditRecord(todayRecord ?? null);
+                    setModalVisible(true);
+                  }
+            }
+            actionLabel={todayRecord ? 'Изменить сегодня' : 'Ввести вручную'}
           >
-            <Ionicons name="add" size={22} color="#fff" />
-          </TouchableOpacity>
-        </Animated.View>
-
-        {/* Today card */}
-        <AnimatedCard index={cardIdx++} style={styles.todayCard}>
-          <View style={styles.todayHeader}>
-            <Text style={styles.todayLabel}>Сегодня</Text>
-            {todayRecord && (
-              <TouchableOpacity onPress={() => handleEdit(todayRecord)} activeOpacity={0.7}>
-                <Ionicons name="pencil" size={16} color={colors.mutedForeground} />
-              </TouchableOpacity>
-            )}
-          </View>
-          {todayRecord ? (
-            <View style={styles.todayContent}>
-              <Text style={styles.todayValue}>{todayRecord.hours.toFixed(1)}</Text>
-              <Text style={styles.todayUnit}>часов</Text>
-              <View style={styles.todayBadge}>
-                <Ionicons name="star" size={14} color="#fbbf24" />
-                <Text style={styles.todayQuality}>{todayRecord.quality}/10</Text>
+            {/* Если активна sleep-сессия — показываем спец-CTA внутри hero */}
+            {session ? (
+              <View style={styles.sessionInline}>
+                <TouchableOpacity
+                  style={[styles.wakeButton, { backgroundColor: colors.sleep }]}
+                  onPress={handleWakeUp}
+                  activeOpacity={0.85}
+                  disabled={addMutation.isPending}
+                >
+                  <Ionicons name="sunny" size={20} color="#fff" />
+                  <Text style={styles.wakeButtonText}>Проснулся</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleCancelSession} activeOpacity={0.7} style={styles.cancelSessionLink}>
+                  <Text style={styles.cancelSessionText}>Отменить сессию</Text>
+                </TouchableOpacity>
               </View>
-            </View>
-          ) : session ? (
-            <View style={styles.sessionActive}>
-              <View style={styles.sessionInfo}>
-                <Ionicons name="moon" size={26} color={colors.sleep} />
-                <View>
-                  <Text style={styles.sessionLabel}>Сплю с</Text>
-                  <Text style={styles.sessionTime}>{session.bedTimeHHMM}</Text>
-                </View>
-              </View>
+            ) : !todayRecord ? (
               <TouchableOpacity
-                style={styles.wakeButton}
-                onPress={handleWakeUp}
-                activeOpacity={0.85}
-                disabled={addMutation.isPending}
-              >
-                <Ionicons name="sunny" size={20} color="#fff" />
-                <Text style={styles.wakeButtonText}>Проснулся</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleCancelSession} activeOpacity={0.7} style={styles.cancelSessionLink}>
-                <Text style={styles.cancelSessionText}>Отменить сессию</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.todayEmpty}>
-              <TouchableOpacity
-                style={styles.bedButton}
+                style={[styles.bedButton, { backgroundColor: colors.sleep }]}
                 onPress={handleStartSleep}
                 activeOpacity={0.85}
               >
-                <Ionicons name="moon" size={22} color="#fff" />
-                <Text style={styles.bedButtonText}>Иду спать</Text>
+                <Ionicons name="moon" size={20} color="#fff" />
+                <Text style={styles.bedButtonText}>Иду спать (запустить таймер)</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => {
-                  setEditRecord(null);
-                  setModalVisible(true);
-                }}
-                activeOpacity={0.7}
-                style={styles.manualLink}
-              >
-                <Text style={styles.manualLinkText}>Ввести вручную</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </AnimatedCard>
+            ) : null}
+          </MetricHero>
+        </Animated.View>
 
-        {/* Stats row */}
-        <View style={styles.statsRow}>
-          <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <Ionicons name="analytics" size={20} color={colors.sleep} />
-            <Text style={styles.statValue}>{weeklyAvg}ч</Text>
-            <Text style={styles.statLabel}>среднее / 7 дней</Text>
-          </AnimatedCard>
-          <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <Ionicons name="document-text" size={20} color={colors.primary} />
-            <Text style={styles.statValue}>{records.length}</Text>
-            <Text style={styles.statLabel}>записей всего</Text>
-          </AnimatedCard>
-        </View>
+        {/* Stats row — avg / trend / best */}
+        {chartData.length > 0 && (() => {
+          const trend = computeTrend(chartData.map((d) => d.hours))
+          const bestHours = chartData.reduce((m, d) => Math.max(m, d.hours), 0)
+          return (
+            <AnimatedCard index={cardIdx++} style={{ marginTop: Spacing.md }}>
+              <StatRow>
+                <StatCard
+                  label={`Среднее за ${chartData.length} дн.`}
+                  value={`${weeklyAvg}ч`}
+                  hint="Цель: 8ч"
+                  accent={colors.sleep}
+                />
+                <TrendCard trend={trend.dir} percent={trend.percent} />
+                <StatCard
+                  label="Лучший день"
+                  value={`${bestHours.toFixed(1)}ч`}
+                  hint="За период"
+                  accent={colors.success}
+                />
+              </StatRow>
+            </AnimatedCard>
+          )
+        })()}
 
         {/* Chart */}
-        <AnimatedCard index={cardIdx++} style={styles.chartCard}>
-          <Text style={styles.cardTitle}>Сон за 7 дней</Text>
-          {chartData.length === 0 ? (
-            <View style={styles.emptyChart}>
-              <Ionicons name="bar-chart-outline" size={32} color={colors.mutedForeground} />
-              <Text style={styles.emptyText}>Нет данных за последние 7 дней</Text>
-            </View>
-          ) : (
-            <View style={styles.chartContainer}>
-              <Svg width={CHART_WIDTH} height={CHART_HEIGHT}>
-                {chartData.map((d, i) => {
-                  const barHeight = Math.max((d.hours / maxHours) * (CHART_HEIGHT - 50), 4);
-                  const totalWidth = chartData.length * barWidth + (chartData.length - 1) * 8;
-                  const startX = (CHART_WIDTH - totalWidth) / 2;
-                  const x = startX + i * (barWidth + 8);
-                  const y = CHART_HEIGHT - 35 - barHeight;
-                  return (
-                    <React.Fragment key={i}>
-                      <Rect x={x} y={y} width={barWidth} height={barHeight} rx={8} fill={colors.sleep} />
-                      <SvgText x={x + barWidth / 2} y={CHART_HEIGHT - 12} fontSize={10} fill={colors.mutedForeground} textAnchor="middle">
-                        {d.date}
-                      </SvgText>
-                      <SvgText x={x + barWidth / 2} y={y - 8} fontSize={11} fill={colors.foreground} fontWeight="600" textAnchor="middle">
-                        {d.hours.toFixed(1)}
-                      </SvgText>
-                    </React.Fragment>
-                  );
-                })}
-              </Svg>
-            </View>
-          )}
+        <AnimatedCard index={cardIdx++} style={{ marginTop: Spacing.md }}>
+          <AccentCard color={colors.sleep} style={styles.chartCardInner}>
+            <Text style={styles.cardTitle}>Сон за 7 дней</Text>
+            {chartData.length === 0 ? (
+              <View style={styles.emptyChart}>
+                <Ionicons name="bar-chart-outline" size={32} color={colors.mutedForeground} />
+                <Text style={styles.emptyText}>Нет данных за последние 7 дней</Text>
+              </View>
+            ) : (
+              <View style={styles.chartContainer}>
+                <Svg width={CHART_WIDTH} height={CHART_HEIGHT}>
+                  {chartData.map((d, i) => {
+                    const barHeight = Math.max((d.hours / maxHours) * (CHART_HEIGHT - 50), 4);
+                    const totalWidth = chartData.length * barWidth + (chartData.length - 1) * 8;
+                    const startX = (CHART_WIDTH - totalWidth) / 2;
+                    const x = startX + i * (barWidth + 8);
+                    const y = CHART_HEIGHT - 35 - barHeight;
+                    return (
+                      <React.Fragment key={i}>
+                        <Rect x={x} y={y} width={barWidth} height={barHeight} rx={8} fill={colors.sleep} />
+                        <SvgText x={x + barWidth / 2} y={CHART_HEIGHT - 12} fontSize={10} fill={colors.mutedForeground} textAnchor="middle">
+                          {d.date}
+                        </SvgText>
+                        <SvgText x={x + barWidth / 2} y={y - 8} fontSize={11} fill={colors.foreground} fontWeight="600" textAnchor="middle">
+                          {d.hours.toFixed(1)}
+                        </SvgText>
+                      </React.Fragment>
+                    );
+                  })}
+                </Svg>
+              </View>
+            )}
+          </AccentCard>
         </AnimatedCard>
 
         {/* History */}
         <View style={styles.historySection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>История</Text>
-            {hasMoreRecords && (
-              <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
-                <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
-                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
-              </TouchableOpacity>
-            )}
-          </View>
+          <SectionHeader
+            title="История"
+            count={records.length}
+            trailing={
+              hasMoreRecords ? (
+                <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
+                  <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
+                  <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
+                </TouchableOpacity>
+              ) : null
+            }
+          />
 
           {records.length === 0 ? (
             <View style={styles.emptyHistory}>
@@ -889,6 +880,13 @@ const createStyles = (colors: ColorPalette) => StyleSheet.create({
     borderColor: colors.border,
     padding: Spacing.lg,
     marginBottom: Spacing.lg,
+  },
+  chartCardInner: {
+    padding: Spacing.lg,
+  },
+  sessionInline: {
+    gap: Spacing.sm,
+    alignItems: 'center',
   },
   cardTitle: {
     fontSize: FontSize.sm,

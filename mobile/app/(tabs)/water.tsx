@@ -22,6 +22,15 @@ import { Spacing, FontSize, FontWeight, BorderRadius, DarkColors } from '@/const
 import { useTheme } from '@/context/ThemeContext';
 import { getWaterRecords, addWaterRecord, updateWaterRecord, deleteWaterRecord } from '@/lib/health-api';
 import type { WaterRecord } from '@/types/health';
+import {
+  AccentCard,
+  MetricHero,
+  StatCard,
+  StatRow,
+  TrendCard,
+  SectionHeader,
+  computeTrend,
+} from '@/components/dashboard/metric-page-atoms';
 
 type ColorPalette = typeof DarkColors;
 const useStyles = () => {
@@ -402,27 +411,25 @@ export default function WaterScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
-        {/* Header */}
-        <Animated.View style={[styles.header, { opacity: headerFade, transform: [{ translateY: headerTranslate }] }]}>
-          <View style={styles.headerLeft}>
-            <View style={[styles.iconWrapper, { backgroundColor: colors.waterMuted }]}>
-              <Ionicons name="water" size={26} color={colors.water} />
-            </View>
-            <View>
-              <Text style={styles.title}>Вода</Text>
-              <Text style={styles.subtitle}>Водный баланс</Text>
-            </View>
-          </View>
-          <TouchableOpacity
-            style={[styles.addHeaderButton, { backgroundColor: colors.water }]}
-            onPress={() => {
-              setEditRecord(null);
-              setModalVisible(true);
+        {/* Hero */}
+        <Animated.View style={{ opacity: headerFade, transform: [{ translateY: headerTranslate }] }}>
+          <MetricHero
+            icon="water"
+            title="Вода"
+            color={colors.water}
+            colorMuted={colors.waterMuted}
+            hasTodayRecord={todayGlasses > 0}
+            subtitle={
+              todayGlasses > 0
+                ? `Сегодня: ${todayGlasses}/${GOAL_GLASSES} стаканов · ${Math.round(todayProgress)}% от цели`
+                : 'Сегодня запись не добавлена'
+            }
+            onAction={() => {
+              setEditRecord(null)
+              setModalVisible(true)
             }}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="add" size={22} color="#fff" />
-          </TouchableOpacity>
+            actionLabel="Добавить запись"
+          />
         </Animated.View>
 
         {/* Today card */}
@@ -471,26 +478,34 @@ export default function WaterScreen() {
             </View>
         </AnimatedCard>
 
-        {/* Stats row */}
-        <View style={styles.statsRow}>
-          <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <View style={[styles.statIconBg, { backgroundColor: colors.waterMuted }]}>
-              <Ionicons name="analytics" size={18} color={colors.water} />
-            </View>
-            <Text style={styles.statValue}>{avgGlasses}</Text>
-            <Text style={styles.statLabel}>среднее / день</Text>
-          </AnimatedCard>
-          <AnimatedCard index={cardIdx++} style={styles.statCard}>
-            <View style={[styles.statIconBg, { backgroundColor: colors.primaryMuted }]}>
-              <Ionicons name="document-text" size={18} color={colors.primary} />
-            </View>
-            <Text style={styles.statValue}>{records.length}</Text>
-            <Text style={styles.statLabel}>записей</Text>
-          </AnimatedCard>
-        </View>
+        {/* Stats row — avg / trend / goals-met */}
+        {chartData.length > 0 && (() => {
+          const trend = computeTrend(chartData.map((d) => d.glasses))
+          const goalsMet = chartData.filter((d) => d.glasses >= GOAL_GLASSES).length
+          return (
+            <AnimatedCard index={cardIdx++} style={{ marginTop: Spacing.md }}>
+              <StatRow>
+                <StatCard
+                  label={`Среднее за ${chartData.length} дн.`}
+                  value={String(avgGlasses)}
+                  hint={`Цель: ${GOAL_GLASSES} стак.`}
+                  accent={colors.water}
+                />
+                <TrendCard trend={trend.dir} percent={trend.percent} />
+                <StatCard
+                  label="Норма выполнена"
+                  value={`${goalsMet}/${chartData.length}`}
+                  hint={`${Math.round((goalsMet / chartData.length) * 100)}% дней`}
+                  accent={colors.success}
+                />
+              </StatRow>
+            </AnimatedCard>
+          )
+        })()}
 
         {/* Chart */}
-        <AnimatedCard index={cardIdx++} style={styles.chartCard}>
+        <AnimatedCard index={cardIdx++} style={{ marginTop: Spacing.md, marginBottom: Spacing.lg }}>
+          <AccentCard color={colors.water} style={{ padding: Spacing.lg }}>
           <Text style={styles.cardTitle}>Потребление воды за 7 дней</Text>
           {chartData.length === 0 ? (
             <View style={styles.emptyChart}>
@@ -541,19 +556,23 @@ export default function WaterScreen() {
               </Svg>
             </View>
           )}
+          </AccentCard>
         </AnimatedCard>
 
         {/* History */}
         <View style={styles.historySection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>История</Text>
-            {hasMoreRecords && (
-              <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
-                <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
-                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
-              </TouchableOpacity>
-            )}
-          </View>
+          <SectionHeader
+            title="История"
+            count={records.length}
+            trailing={
+              hasMoreRecords ? (
+                <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} activeOpacity={0.7} style={styles.expandButton}>
+                  <Text style={styles.expandText}>{isExpanded ? 'Свернуть' : `Ещё ${records.length - COLLAPSED_ITEMS}`}</Text>
+                  <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
+                </TouchableOpacity>
+              ) : null
+            }
+          />
 
           {records.length === 0 ? (
             <View style={styles.emptyHistory}>

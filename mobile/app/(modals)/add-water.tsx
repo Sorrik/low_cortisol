@@ -7,7 +7,10 @@ import {
 import { useRouter } from 'expo-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Minus, Plus, Droplets } from 'lucide-react-native'
+import * as Haptics from 'expo-haptics'
 import { createWater } from '@/lib/health-api'
+import { useThemedStyles, ColorPalette } from '@/lib/useThemedStyles'
+import { useTheme } from '@/context/ThemeContext'
 
 function todayStr(): string {
   const d = new Date()
@@ -24,6 +27,8 @@ const QUICK_OPTIONS = [1, 2, 4, 6, 8]
 export default function AddWaterModal() {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
 
   const [glasses, setGlasses] = useState(4)
 
@@ -34,11 +39,13 @@ export default function AddWaterModal() {
       amountMl: glasses * 250,
     }),
     onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
       queryClient.invalidateQueries({ queryKey: ['water'] })
       Alert.alert('✅ Успешно', 'Вода сохранена')
       router.back()
     },
     onError: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
       Alert.alert('❌ Ошибка', 'Не удалось сохранить')
     },
   })
@@ -50,13 +57,13 @@ export default function AddWaterModal() {
       <View style={styles.header}>
         <Text style={styles.title}>Добавить: Вода</Text>
         <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
-          <X size={28} color="#9ca3af" />
+          <X size={28} color={colors.mutedForeground} />
         </TouchableOpacity>
       </View>
 
       <View style={styles.content}>
         <View style={styles.iconWrapper}>
-          <Droplets size={48} color="#38bdf8" />
+          <Droplets size={48} color={colors.water} />
         </View>
 
         {/* Stepper */}
@@ -66,7 +73,7 @@ export default function AddWaterModal() {
             onPress={() => setGlasses(v => Math.max(0, v - 1))}
             disabled={glasses <= 0}
           >
-            <Minus size={28} color={glasses <= 0 ? '#4b5563' : '#f5f5f5'} />
+            <Minus size={28} color={glasses <= 0 ? colors.mutedForeground : colors.foreground} />
           </TouchableOpacity>
 
           <View style={styles.valueContainer}>
@@ -79,7 +86,7 @@ export default function AddWaterModal() {
             onPress={() => setGlasses(v => Math.min(20, v + 1))}
             disabled={glasses >= 20}
           >
-            <Plus size={28} color={glasses >= 20 ? '#4b5563' : '#f5f5f5'} />
+            <Plus size={28} color={glasses >= 20 ? colors.mutedForeground : colors.foreground} />
           </TouchableOpacity>
         </View>
 
@@ -121,7 +128,7 @@ export default function AddWaterModal() {
           disabled={mutation.isPending}
         >
           {mutation.isPending
-            ? <ActivityIndicator color="#0a0a0a" />
+            ? <ActivityIndicator color={colors.primaryForeground} />
             : <Text style={styles.saveBtnText}>СОХРАНИТЬ</Text>
           }
         </TouchableOpacity>
@@ -130,31 +137,31 @@ export default function AddWaterModal() {
   )
 }
 
-const styles = StyleSheet.create({
-  container:           { flex: 1, backgroundColor: '#0f0f0f' },
-  header:              { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#1f1f1f' },
-  title:               { fontSize: 20, fontWeight: '700', color: '#f5f5f5' },
+const createStyles = (colors: ColorPalette) => StyleSheet.create({
+  container:           { flex: 1, backgroundColor: colors.background },
+  header:              { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
+  title:               { fontSize: 20, fontWeight: '700', color: colors.foreground },
   content:             { flex: 1, paddingHorizontal: 20, paddingTop: 32, alignItems: 'center' },
-  iconWrapper:         { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(56,189,248,0.1)', alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
+  iconWrapper:         { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.waterMuted, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
   voiceWrap:           { width: '100%', marginBottom: 24 },
   stepperContainer:    { flexDirection: 'row', alignItems: 'center', gap: 24, marginBottom: 12 },
-  stepperBtn:          { width: 56, height: 56, borderRadius: 28, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#27272a', alignItems: 'center', justifyContent: 'center' },
+  stepperBtn:          { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   valueContainer:      { alignItems: 'center', minWidth: 100 },
-  valueText:           { fontSize: 56, fontWeight: '700', color: '#f5f5f5' },
-  unitText:            { fontSize: 14, color: '#9ca3af', marginTop: -4 },
-  totalText:           { fontSize: 16, color: '#6b7280', marginBottom: 32 },
+  valueText:           { fontSize: 56, fontWeight: '700', color: colors.foreground },
+  unitText:            { fontSize: 14, color: colors.mutedForeground, marginTop: -4 },
+  totalText:           { fontSize: 16, color: colors.mutedForeground, marginBottom: 32 },
   quickContainer:      { width: '100%', marginBottom: 24 },
-  quickLabel:          { fontSize: 12, color: '#6b7280', marginBottom: 10, textAlign: 'center' },
+  quickLabel:          { fontSize: 12, color: colors.mutedForeground, marginBottom: 10, textAlign: 'center' },
   quickRow:            { flexDirection: 'row', justifyContent: 'center', gap: 10 },
-  quickOption:         { width: 48, height: 48, borderRadius: 12, backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#27272a', alignItems: 'center', justifyContent: 'center' },
-  quickOptionActive:   { borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,0.1)' },
-  quickOptionText:     { fontSize: 18, fontWeight: '600', color: '#9ca3af' },
-  quickOptionTextActive:{ color: '#38bdf8' },
-  infoCard:            { width: '100%', backgroundColor: 'rgba(56,189,248,0.08)', borderWidth: 1, borderColor: 'rgba(56,189,248,0.15)', borderRadius: 12, padding: 16 },
-  infoTitle:           { fontSize: 13, fontWeight: '600', color: '#38bdf8', marginBottom: 6 },
-  infoText:            { fontSize: 13, color: '#9ca3af', lineHeight: 20 },
-  footer:              { padding: 20, borderTopWidth: 1, borderTopColor: '#1f1f1f' },
-  saveBtn:             { backgroundColor: '#a3e635', borderRadius: 12, paddingVertical: 18, alignItems: 'center' },
+  quickOption:         { width: 48, height: 48, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  quickOptionActive:   { borderColor: colors.water, backgroundColor: colors.waterMuted },
+  quickOptionText:     { fontSize: 18, fontWeight: '600', color: colors.mutedForeground },
+  quickOptionTextActive:{ color: colors.water },
+  infoCard:            { width: '100%', backgroundColor: colors.waterMuted, borderWidth: 1, borderColor: colors.waterMuted, borderRadius: 12, padding: 16 },
+  infoTitle:           { fontSize: 13, fontWeight: '600', color: colors.water, marginBottom: 6 },
+  infoText:            { fontSize: 13, color: colors.mutedForeground, lineHeight: 20 },
+  footer:              { padding: 20, borderTopWidth: 1, borderTopColor: colors.border },
+  saveBtn:             { backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 18, alignItems: 'center' },
   saveBtnDisabled:     { opacity: 0.6 },
-  saveBtnText:         { fontSize: 16, fontWeight: '700', color: '#0a0a0a', letterSpacing: 0.5 },
+  saveBtnText:         { fontSize: 16, fontWeight: '700', color: colors.primaryForeground, letterSpacing: 0.5 },
 })

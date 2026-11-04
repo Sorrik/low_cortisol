@@ -1,10 +1,19 @@
 {
   "name": "low-cortisol-spike",
   "private": true,
+  "packageManager": "pnpm@10.14.0",
   "scripts": {
     "dev:frontend": "pnpm --filter frontend dev",
     "dev:backend": "pnpm --filter backend start:dev",
     "dev": "pnpm dev:backend & pnpm dev:frontend",
     "build": "pnpm --filter frontend build && pnpm --filter backend build"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@scarf/scarf",
+      "bcrypt",
+      "unrs-resolver"
+    ]
   }
 }

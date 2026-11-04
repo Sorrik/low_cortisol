@@ -11,7 +11,9 @@ services:
       - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      # init.sql отключён: старая MVP-схема (users/sleep_data/mood_data) конфликтует
+      # с текущими TypeORM-сущностями. Схему создаёт synchronize (TYPEORM_SYNC=true).
+      # - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
       interval: 10s
@@ -31,13 +33,20 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-low_cortisol_spike}
+      TYPEORM_SYNC: ${TYPEORM_SYNC:-false}
       JWT_SECRET: ${JWT_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       CORS_ORIGINS: ${CORS_ORIGINS}
       ML_SERVICE_URL: http://ml-service:8000
+      # OpenAI / proxyapi — основной LLM-провайдер: chat + embeddings + vision/voice
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-20000}
+      EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-openai}
+      # LLM_PROMPT_DUMP=1 включает дамп system/user промптов и сырого ответа
+      # модели в лог. Для отладки. На обычной разработке держим выключенным.
+      LLM_PROMPT_DUMP: ${LLM_PROMPT_DUMP:-0}
       VISION_MODEL: ${VISION_MODEL:-gpt-4o-mini}
       VOICE_PARSE_MODEL: ${VOICE_PARSE_MODEL:-gpt-4o-mini}
       TRANSCRIBE_BACKEND: ${TRANSCRIBE_BACKEND:-ml_service}
@@ -98,6 +107,17 @@ services:
       - "3001:3000"
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:3000
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      # Монтируем исходники с хоста, чтобы Next.js dev-сервер
+      # подхватывал изменения без пересборки образа.
+      - ./frontend:/app/frontend
+      - ./packages/contract:/app/packages/contract
+      # Анонимные тома: прячут host-вские node_modules/.next под контейнерными.
+      # Иначе volume выше затирает их и контейнер падает.
+      - /app/frontend/node_modules
+      - /app/frontend/.next
     depends_on:
       - backend
     networks:

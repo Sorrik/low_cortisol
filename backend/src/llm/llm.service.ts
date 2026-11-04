@@ -20,11 +20,12 @@ import {
 // ── Типы ─────────────────────────────────────────────────────
 
 export interface ArticleSource {
-  index: number
-  pmid:  string
-  title: string
-  year:  string
-  url:   string
+  index:   number
+  pmid:    string
+  title:   string
+  titleRu: string
+  year:    string
+  url:     string
 }
 
 export interface RecommendationsResult {
@@ -38,8 +39,14 @@ export interface RecommendationsResult {
 export class LlmService {
   private readonly logger = new Logger(LlmService.name)
   private readonly client: OpenAI
-  private readonly model:  string
+  private readonly model:           string
+  private readonly translationModel: string
   private readonly requestTimeoutMs: number
+
+  // Кеш переводов PubMed-заголовков (PMID -> русский заголовок).
+  // Заголовки статей не меняются, поэтому in-memory кеша достаточно
+  // на время жизни процесса. На 90 статьях это десятки KB.
+  private readonly titleTranslationCache = new Map<string, string>()
   /**
    * TEMP debug-флаг для аудита качества рекомендаций. При LLM_PROMPT_DUMP=1
    * в лог печатается полный system/user промпт, retrieved-статьи, сырой
@@ -61,16 +68,20 @@ export class LlmService {
     private readonly config:     ConfigService,
     private readonly ragService: RagService,
   ) {
-    this.requestTimeoutMs = this.config.get<number>('OPENAI_TIMEOUT_MS', 20_000)
+    this.requestTimeoutMs = Number(this.config.get<string | number>('LLM_TIMEOUT_MS', 20_000)) || 20_000
     this.client = new OpenAI({
       apiKey:  this.config.get<string>('OPENAI_API_KEY'),
       baseURL: this.config.get<string>('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
       timeout: this.requestTimeoutMs,
       maxRetries: 1,
     })
-    // gpt-4o-2024-08-06 — первая версия с поддержкой Structured Outputs (strict JSON schema).
-    // gpt-4.1-mini / gpt-4o-mini тоже поддерживают, но 4o даёт лучшее качество советов.
-    this.model = this.config.get<string>('LLM_MODEL', 'gpt-4o-2024-08-06')
+    // gpt-4o-mini поддерживает Structured Outputs (strict JSON schema) и даёт
+    // достаточное качество советов при низкой стоимости. Можно поднять до
+    // gpt-4o-2024-08-06 через LLM_MODEL для более качественной генерации.
+    this.model = this.config.get<string>('LLM_MODEL', 'gpt-4o-mini')
+    // Для перевода заголовков PubMed используем ту же (или явно заданную)
+    // лёгкую модель. Перевод кэшируется на процесс — повторных вызовов нет.
+    this.translationModel = this.config.get<string>('LLM_TRANSLATION_MODEL', this.model)
   }
 
   // ── Главный метод ─────────────────────────────────────────
@@ -123,13 +134,17 @@ export class LlmService {
       abstract_head: (a.abstract ?? '').slice(0, 300),
     })))
 
-    // ── Источники для фронтенда
+    // ── Источники для фронтенда (с русскими заголовками)
+    const translatedTitles = await this._translateTitles(
+      articles.map(a => ({ pmid: a.pmid, title: a.title })),
+    )
     const sources: ArticleSource[] = articles.map((a, i) => ({
-      index: i + 1,
-      pmid:  a.pmid,
-      title: a.title,
-      year:  a.year,
-      url:   `https://europepmc.org/article/MED/${a.pmid}`,
+      index:   i + 1,
+      pmid:    a.pmid,
+      title:   a.title,
+      titleRu: translatedTitles.get(a.pmid) ?? a.title,
+      year:    a.year,
+      url:     `https://europepmc.org/article/MED/${a.pmid}`,
     }))
 
     // ── Строим промпт: данные + SHAP + RAG
@@ -175,7 +190,7 @@ export class LlmService {
         return { recommendations: [], sources }
       }
 
-      // Artemox-прокси иногда возвращает HTTP 200 с телом null —
+      // Прокси иногда возвращает HTTP 200 с телом null —
       // OpenAI SDK парсит это как null вместо броска APIError
       if (!response || !response.choices?.length) {
         throw new Error(
@@ -215,7 +230,15 @@ export class LlmService {
       this._dump('AFTER _dedupeCausalChains', recommendations)
 
       recommendations = this._correctSeverities(recommendations, healthData)
-      this._dump('AFTER _correctSeverities (final)', recommendations)
+      this._dump('AFTER _correctSeverities', recommendations)
+
+      // Финальный шаг — нормализуем good-карточки. LLM может вписать
+      // негатив («Настроение ухудшается», «но наблюдается ухудшение»)
+      // даже при severity=good, потому что видит мелкий нисходящий тренд.
+      // Для пользователя с метриками в норме это вредная коммуникация —
+      // подменяем title/description поддерживающим шаблоном.
+      recommendations = this._normalizeGoodCards(recommendations, healthData)
+      this._dump('AFTER _normalizeGoodCards (final)', recommendations)
       return { recommendations, sources }
 
     } catch (err) {
@@ -531,5 +554,181 @@ export class LlmService {
       this.logger.error(`[_parseResponse] ошибка парсинга: ${err}`)
       return []
     }
+  }
+
+  // ── Перевод заголовков PubMed на русский ──────────────────────────────
+  //
+  // Заголовки статей приходят на английском, для пользователя ВКР нужны
+  // русские. Переводим один раз через gpt-4o-mini, кешируем результат
+  // по PMID. На 90 статьях весь корпус переводится за один-два запроса.
+  // При сбое или таймауте — fallback на оригинальный английский заголовок.
+
+  private async _translateTitles(
+    items: { pmid: string; title: string }[],
+  ): Promise<Map<string, string>> {
+    const result = new Map<string, string>()
+
+    const pending: { pmid: string; title: string }[] = []
+    for (const item of items) {
+      const cached = this.titleTranslationCache.get(item.pmid)
+      if (cached) {
+        result.set(item.pmid, cached)
+      } else {
+        pending.push(item)
+      }
+    }
+
+    if (pending.length === 0) return result
+
+    try {
+      const numbered = pending
+        .map((it, i) => `${i + 1}. ${it.title.replace(/\s+/g, ' ').trim()}`)
+        .join('\n')
+
+      const response = await this.client.chat.completions.create({
+        model:       this.translationModel,
+        temperature: 0.1,
+        max_tokens:  600,
+        messages: [
+          {
+            role:    'system',
+            content:
+              'Переведи научные заголовки PubMed на русский язык. ' +
+              'Сохрани смысл, термины переводи общедоступно. Без кавычек, без точки в конце. ' +
+              'Верни ТОЛЬКО JSON-массив строк в том же порядке, без пояснений. ' +
+              'Пример: ["Заголовок один", "Заголовок два"]',
+          },
+          { role: 'user', content: numbered },
+        ],
+      })
+
+      const raw = response.choices?.[0]?.message?.content?.trim() ?? ''
+      const parsed: unknown = JSON.parse(raw.replace(/^```(?:json)?|```$/g, '').trim())
+
+      if (Array.isArray(parsed) && parsed.length === pending.length) {
+        pending.forEach((it, i) => {
+          const ru = typeof parsed[i] === 'string' ? (parsed[i] as string).trim() : ''
+          if (ru) {
+            this.titleTranslationCache.set(it.pmid, ru)
+            result.set(it.pmid, ru)
+          }
+        })
+      } else {
+        this.logger.warn(
+          `[translateTitles] mismatched response length: expected ${pending.length}, got ${Array.isArray(parsed) ? parsed.length : 'non-array'}`,
+        )
+      }
+    } catch (err) {
+      this.logger.warn(`[translateTitles] failed: ${err}`)
+    }
+
+    return result
+  }
+
+  // ── Нормализатор good-карточек ─────────────────────────────────────────
+  //
+  // LLM любит даже в карточке «всё хорошо» вписать оговорку про мелкий тренд
+  // («среднее 8.4/10, но наблюдается ухудшение»). Для юзера с метриками в
+  // норме это разрушает UX — мы хотим, чтобы хорошие карточки звучали как
+  // поддержка коуча, не как мелочный аудит.
+  //
+  // Стратегия:
+  //   1) если severity != "good" — не трогаем;
+  //   2) ищем запрещённые слова/обороты в title и description;
+  //   3) если найдены — подменяем на метрик-специфичный позитивный шаблон,
+  //      подставляя число из реальных данных пользователя.
+
+  // ВАЖНО: держать синхронно со списком запрещённых оборотов в
+  // prompt-builder.ts (раздел 5a, "ДЛЯ severity = good"). «но», «однако»,
+  // «следует» намеренно НЕ входят сюда — это нейтральные слова, которые
+  // ломают естественность текста, если запретить их целиком (см. правку
+  // промпта: разрешены, если фраза в целом звучит позитивно).
+  private static readonly NEGATIVE_PATTERNS = [
+    /ухудш/i, /снижа/i, /снизил/i, /падае/i, /упал/i,
+    /\bниже\b/i, /\bхуже\b/i, /слабее/i,
+    /проблем/i, /\bриск/i, /беспоко/i, /тревож/i, /осторож/i,
+    /обрати внимание/i, /стоит улучшить/i, /стоит обратить/i,
+    /попробуй (добавить|улучшить|пересмотреть)/i,
+    /недобор/i, /не дотягива/i,
+  ] as const
+
+  private _normalizeGoodCards(
+    recs: RecommendationDto[],
+    healthData: any,
+  ): RecommendationDto[] {
+    const avgOf = (arr: any[], key: string) =>
+      arr.length ? arr.reduce((s: number, r: any) => s + (r[key] ?? 0), 0) / arr.length : 0
+
+    const avgSleep    = avgOf(healthData.sleep    ?? [], 'duration_hours')
+    const avgMood     = avgOf(healthData.mood     ?? [], 'mood_score')
+    const avgStress   = avgOf(healthData.stress   ?? [], 'level')
+    const avgActivity = avgOf(healthData.activity ?? [], 'duration_minutes')
+
+    // Вода — сумма по дню (поле amount_ml — мл за раз), агрегируем
+    const waterByDay = new Map<string, number>()
+    for (const r of (healthData.water ?? []) as Array<{ date?: string; amount_ml?: number }>) {
+      const day = (r.date ?? 'unknown').slice(0, 10)
+      waterByDay.set(day, (waterByDay.get(day) ?? 0) + (r.amount_ml ?? 0))
+    }
+    const dailyWater = [...waterByDay.values()].filter(v => v > 0)
+    const avgWaterMl = dailyWater.length
+      ? dailyWater.reduce((s, v) => s + v, 0) / dailyWater.length
+      : 0
+
+    const r1 = (n: number) => Math.round(n * 10) / 10
+    const r0 = (n: number) => Math.round(n)
+
+    const templates: Record<string, { title: string; desc: string }> = {
+      mood: {
+        title: 'Стабильно хорошее настроение',
+        desc:  `Среднее настроение ${r1(avgMood)}/10 — устойчиво высокий уровень. Так держать!`,
+      },
+      sleep: {
+        title: 'Хороший сон',
+        desc:  `Средняя продолжительность сна ${r1(avgSleep)} ч — отличный режим. Продолжай в том же духе.`,
+      },
+      stress: {
+        title: 'Стресс под контролем',
+        desc:  `Средний уровень стресса ${r1(avgStress)}/10 — комфортный диапазон. Отличный самоконтроль!`,
+      },
+      activity: {
+        title: 'Отличная активность',
+        desc:  `Среднее время активности ${r0(avgActivity)} мин/день — выше нормы. Так держать!`,
+      },
+      water: {
+        title: 'Хороший уровень гидратации',
+        desc:  `Среднее потребление воды ${r0(avgWaterMl)} мл/день — отлично. Продолжай в том же духе.`,
+      },
+      food: {
+        title: 'Питание в порядке',
+        desc:  `Рацион стабильно соответствует твоим целям. Поддерживай этот баланс.`,
+      },
+    }
+
+    const hasNegative = (s: string): boolean =>
+      LlmService.NEGATIVE_PATTERNS.some(p => p.test(s))
+
+    return recs.map(rec => {
+      if (rec.severity !== 'good') return rec
+
+      const tpl = templates[rec.metric]
+      if (!tpl) return rec
+
+      const titleBad = hasNegative(rec.title)
+      const descBad  = hasNegative(rec.description)
+
+      if (!titleBad && !descBad) return rec
+
+      this.logger.warn(
+        `[normalize] good-card "${rec.metric}" содержала негативную лексику, ` +
+        `переписали по шаблону (title_bad=${titleBad}, desc_bad=${descBad})`,
+      )
+
+      return {
+        ...rec,
+        title:       titleBad ? tpl.title : rec.title,
+        description: descBad  ? tpl.desc  : rec.description,
+      }
+    })
   }
 }

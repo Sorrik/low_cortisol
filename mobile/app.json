@@ -7,11 +7,6 @@
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "icon": "./assets/icon.png",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#0a0a0a"
-    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.lowcor.app"
@@ -27,16 +22,40 @@
       "expo-router",
       "expo-secure-store",
       "@react-native-community/datetimepicker",
-      ["expo-sensors", {
-        "motionPermission": "Разрешите доступ к шагомеру для автоматического подсчёта шагов"
-      }],
-      ["expo-image-picker", {
-        "photosPermission": "Разрешите доступ к фото, чтобы AI распознавал блюда на фотографиях еды",
-        "cameraPermission": "Разрешите доступ к камере, чтобы фотографировать еду для AI-распознавания"
-      }],
-      ["expo-av", {
-        "microphonePermission": "Разрешите доступ к микрофону для голосового ввода настроения, сна и еды"
-      }]
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "Разрешите доступ к шагомеру для автоматического подсчёта шагов"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Разрешите доступ к фото, чтобы AI распознавал блюда на фотографиях еды",
+          "cameraPermission": "Разрешите доступ к камере, чтобы фотографировать еду для AI-распознавания"
+        }
+      ],
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#0a0a0a"
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Разрешите доступ к микрофону для голосового ввода настроения, сна и еды"
+        }
+      ],
+      [
+        "expo-system-ui",
+        {
+          "backgroundColor": "#0a0a0a"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
