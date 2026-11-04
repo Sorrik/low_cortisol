@@ -8,6 +8,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
@@ -35,6 +36,7 @@ export class AuthController {
   ) {}
 
   @Post('register')
+  @Throttle({ medium: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'Регистрация нового пользователя' })
   @ApiResponse({ status: 201, description: 'Пользователь создан' })
   @ApiResponse({ status: 409, description: 'Email уже занят' })
@@ -47,6 +49,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @Throttle({ medium: { limit: 10, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Вход — выдаёт access + refresh токены' })
   @ApiResponse({ status: 200, description: 'Возвращает access_token (refresh — в HttpOnly cookie или body)' })

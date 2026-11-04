@@ -8,9 +8,23 @@ import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { User } from '../users/user.entity';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+
+// Bcrypt учитывает только первые 72 байта входа, а у JWT одного пользователя они
+// совпадают (заголовок и начало payload). Поэтому refresh-токен хешируется целиком
+// через SHA-256. Токен и так случайный и длинный, медленный хеш ему не нужен.
+function hashRefreshToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function isSameHash(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
 
 export interface AuthTokens {
   access_token: string;
@@ -80,7 +94,7 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token revoked');
     }
 
-    const matches = await bcrypt.compare(presentedRefresh, user.refreshTokenHash);
+    const matches = isSameHash(hashRefreshToken(presentedRefresh), user.refreshTokenHash);
     if (!matches) {
       // Не совпадает — возможно, токен украден и уже использован. Сбрасываем сессию.
       await this.usersRepo.update({ id: userId }, { refreshTokenHash: null });
@@ -105,9 +119,10 @@ export class AuthService {
     const refresh_token = this.jwtService.sign(payload, {
       secret: this.refreshSecret,
       expiresIn: this.refreshTtl as unknown as number,
+      jwtid: randomUUID(), // два токена, выпущенные в одну секунду, тоже должны различаться
     });
 
-    const refreshHash = await bcrypt.hash(refresh_token, 10);
+    const refreshHash = hashRefreshToken(refresh_token);
     await this.usersRepo.update({ id: user.id }, { refreshTokenHash: refreshHash });
 
     return {
